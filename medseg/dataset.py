@@ -36,7 +36,7 @@ class ImageCASDataset(Randomizable, CacheDataset):
             raise ValueError("Download the dataset manually.")
 
         img_dir = os.path.join(dataset_dir, "images")
-        img_list = glob.glob(os.path.join(img_dir, "*.img.nii.gz"))[:8]
+        img_list = glob.glob(os.path.join(img_dir, "*.img.nii.gz"))
         self.datalist = []
         for img_path in img_list:
             img_basename = os.path.basename(img_path)

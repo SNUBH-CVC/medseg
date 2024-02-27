@@ -87,7 +87,7 @@ def main():
         section="training",
         transform=train_transforms,
         cache_rate=0.0,
-        val_frac=0.5,
+        val_frac=0.2,
     )
     train_loader = DataLoader(
         train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers
@@ -97,7 +97,7 @@ def main():
         section="validation",
         transform=val_transforms,
         cache_rate=0.0,
-        val_frac=0.5,
+        val_frac=0.2,
     )
     val_loader = DataLoader(
         val_ds, batch_size=1, shuffle=False, num_workers=num_workers
