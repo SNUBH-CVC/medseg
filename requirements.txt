@@ -1,0 +1,6 @@
+monai
+jupyter
+nibabel
+wandb
+pytorch-ignite
+scikit-image
