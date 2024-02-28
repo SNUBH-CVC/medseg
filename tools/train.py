@@ -32,9 +32,9 @@ def main():
     monai.config.print_config()
 
     # set hyperparameters
-    data_root_dir = "/data"
+    dataset_dir = "/data/imagecas"
     log_root_dir = "./runs"
-    batch_size = 8
+    batch_size = 16
     max_epochs = 100
     num_workers = 4
     roi_size = (128, 128, 64)
@@ -76,14 +76,21 @@ def main():
         [
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
-            ScaleIntensityd(keys="image"),
+            ScaleIntensityRanged(
+                keys=["image"],
+                a_min=-4000,
+                a_max=4000,
+                b_min=0.0,
+                b_max=1.0,
+                clip=True,
+            ),
             EnsureTyped(keys=["image", "label"]),
         ]
     )
 
     # create a training data loader
     train_ds = ImageCASDataset(
-        root_dir=data_root_dir,
+        dataset_dir=dataset_dir,
         section="training",
         transform=train_transforms,
         cache_rate=0.0,
@@ -93,7 +100,7 @@ def main():
         train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers
     )
     val_ds = ImageCASDataset(
-        root_dir=data_root_dir,
+        dataset_dir=dataset_dir,
         section="validation",
         transform=val_transforms,
         cache_rate=0.0,
@@ -114,7 +121,7 @@ def main():
     net.to(device)
     loss_function = monai.losses.DiceLoss(sigmoid=True)
     optimizer = torch.optim.Adam(net.parameters(), 1e-3)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.1)
+    # lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.0, total_iters=max_epochs)
     val_post_transforms = Compose(
         [
             EnsureTyped(keys="pred"),
@@ -125,11 +132,11 @@ def main():
     )
     val_handlers = [
         # apply “EarlyStop” logic based on the validation metrics
-        EarlyStopHandler(
-            trainer=None,
-            patience=2,
-            score_function=lambda x: x.state.metrics["val_mean_dice"],
-        ),
+        # EarlyStopHandler(
+        #     trainer=None,
+        #     patience=2,
+        #     score_function=lambda x: x.state.metrics["val_mean_dice"],
+        # ),
         # doesn't calculate validation loss: https://github.com/Project-MONAI/MONAI/discussions/3786 
         StatsHandler(name="validation_log", output_transform=lambda x: None),
         TensorBoardStatsHandler(log_dir=log_dir, output_transform=lambda x: None),
@@ -145,7 +152,7 @@ def main():
         val_data_loader=val_loader,
         network=net,
         inferer=SlidingWindowInferer(
-            roi_size=(96, 96, 96), sw_batch_size=4, overlap=0.25
+            roi_size=roi_size, sw_batch_size=4, overlap=0.25
         ),
         postprocessing=val_post_transforms,
         key_val_metric={
@@ -165,14 +172,14 @@ def main():
     )
     train_handlers = [
         # apply “EarlyStop” logic based on the loss value, use “-” negative value because smaller loss is better
-        EarlyStopHandler(
-            trainer=None,
-            patience=20,
-            score_function=lambda x: -x.state.output[0]["loss"],
-            epoch_level=False,
-        ),
-        LrScheduleHandler(lr_scheduler=lr_scheduler, print_lr=True),
-        ValidationHandler(validator=evaluator, interval=1, epoch_level=True),
+        # EarlyStopHandler(
+        #     trainer=None,
+        #     patience=20,
+        #     score_function=lambda x: -x.state.output[0]["loss"],
+        #     epoch_level=False,
+        # ),
+        # LrScheduleHandler(lr_scheduler=lr_scheduler, print_lr=True),
+        ValidationHandler(validator=evaluator, interval=2, epoch_level=True),
         # use the logger "train_log" defined at the beginning of this program
         StatsHandler(
             name="train_log",
@@ -202,8 +209,8 @@ def main():
         amp=True,
     )
     # set initialized trainer for "early stop" handlers
-    val_handlers[0].set_trainer(trainer=trainer)
-    train_handlers[0].set_trainer(trainer=trainer)
+    # val_handlers[0].set_trainer(trainer=trainer)
+    # train_handlers[0].set_trainer(trainer=trainer)
     trainer.run()
 
 
