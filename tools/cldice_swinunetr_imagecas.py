@@ -17,15 +17,15 @@ from monai.handlers import (CheckpointSaver, EarlyStopHandler,
                             TensorBoardImageHandler, TensorBoardStatsHandler,
                             ValidationHandler, from_engine)
 from monai.inferers import SimpleInferer, SlidingWindowInferer
-from monai.transforms import (Activationsd, AsDiscreted, Compose,
-                              EnsureChannelFirstd, EnsureTyped,
+from monai.networks.nets.swin_unetr import SwinUNETR
+from monai.transforms import (Activationsd, AsDiscreted, Compose, EnsureTyped,
                               KeepLargestConnectedComponentd, LoadImaged,
-                              RandSpatialCropd, ScaleIntensityd,
-                              ScaleIntensityRanged)
+                              NormalizeIntensityd, RandSpatialCropd,
+                              ScaleIntensityRangePercentilesd)
 
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from medseg.core.utils import get_basename_wo_ext
 from medseg.dataset import ImageCASDataset
-from medseg.model.segmamba import SegMamba
+from medseg.loss.cldice import soft_cldice
 
 
 def main():
@@ -39,9 +39,7 @@ def main():
     num_workers = 4
     roi_size = (128, 128, 64)
     multi_gpu = True
-    tensorboard_log_name = (
-        f"segmamba-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
-    )
+    tensorboard_log_name = f"{get_basename_wo_ext(__file__)}-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
     log_dir = os.path.join(log_root_dir, tensorboard_log_name)
     os.makedirs(log_dir)
     copyfile(__file__, os.path.join(log_dir, os.path.basename(__file__)))
@@ -53,17 +51,9 @@ def main():
     # define transforms for image and segmentation
     train_transforms = Compose(
         [
-            LoadImaged(keys=["image", "label"]),
-            EnsureChannelFirstd(keys=["image", "label"]),
-            # From ImageCAS original code
-            ScaleIntensityRanged(
-                keys=["image"],
-                a_min=-4000,
-                a_max=4000,
-                b_min=0.0,
-                b_max=1.0,
-                clip=True,
-            ),
+            LoadImaged(keys=["image", "label"], ensure_channel_first=True),
+            ScaleIntensityRangePercentilesd(keys=["image"], lower=0.05, upper=0.95),
+            NormalizeIntensityd(keys=["image"]),
             # RandScaleIntensityd(keys=["image"], factors=0.1, prob=1.0),
             # RandShiftIntensityd(keys=["image"], offsets=0.1, prob=1.0),
             EnsureTyped(keys=["image", "label"]),
@@ -74,16 +64,9 @@ def main():
     )
     val_transforms = Compose(
         [
-            LoadImaged(keys=["image", "label"]),
-            EnsureChannelFirstd(keys=["image", "label"]),
-            ScaleIntensityRanged(
-                keys=["image"],
-                a_min=-4000,
-                a_max=4000,
-                b_min=0.0,
-                b_max=1.0,
-                clip=True,
-            ),
+            LoadImaged(keys=["image", "label"], ensure_channel_first=True),
+            ScaleIntensityRangePercentilesd(keys=["image"], lower=0.05, upper=0.95),
+            NormalizeIntensityd(keys=["image"]),
             EnsureTyped(keys=["image", "label"]),
         ]
     )
@@ -112,15 +95,20 @@ def main():
 
     # create network, optimizer and loss function
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    net = SegMamba(
-        in_chans=1, out_chans=1, depths=[2, 2, 2, 2], feat_size=[48, 96, 192, 384]
-    )
+    net = SwinUNETR(
+        img_size=roi_size,
+        in_channels=1,
+        out_channels=1,
+        feature_size=48,
+        use_checkpoint=True,
+    ).to(device)
+    weight = torch.load("./pretrained/model_swinvit.pt")
+    net.load_from(weights=weight)
     if multi_gpu and torch.cuda.device_count() > 1:
         logging.info(f"Using {torch.cuda.device_count()} GPUs!")
         net = nn.DataParallel(net)
-    net.to(device)
-    loss_function = monai.losses.DiceLoss(sigmoid=True)
-    optimizer = torch.optim.Adam(net.parameters(), 1e-3)
+    loss_function = soft_cldice(iter_=3, smooth=1)
+    optimizer = torch.optim.Adam(net.parameters(), 1e-4, weight_decay=1e-5)
     # lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.0, total_iters=max_epochs)
     val_post_transforms = Compose(
         [
@@ -137,7 +125,7 @@ def main():
         #     patience=2,
         #     score_function=lambda x: x.state.metrics["val_mean_dice"],
         # ),
-        # doesn't calculate validation loss: https://github.com/Project-MONAI/MONAI/discussions/3786 
+        # doesn't calculate validation loss: https://github.com/Project-MONAI/MONAI/discussions/3786
         StatsHandler(name="validation_log", output_transform=lambda x: None),
         TensorBoardStatsHandler(log_dir=log_dir, output_transform=lambda x: None),
         TensorBoardImageHandler(
@@ -151,9 +139,7 @@ def main():
         device=device,
         val_data_loader=val_loader,
         network=net,
-        inferer=SlidingWindowInferer(
-            roi_size=roi_size, sw_batch_size=4, overlap=0.25
-        ),
+        inferer=SlidingWindowInferer(roi_size=roi_size, sw_batch_size=4, overlap=0.25),
         postprocessing=val_post_transforms,
         key_val_metric={
             "val_mean_dice": MeanDice(
