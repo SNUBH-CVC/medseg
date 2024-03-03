@@ -1,3 +1,3 @@
 format:
-	black medseg/ tools/
-	isort medseg/ tools/
+	black medseg/ tools/ configs/
+	isort medseg/ tools/ configs/
