@@ -1,138 +1,77 @@
-import logging
-
 import mlflow
-from monai.data import decollate_batch
+from ignite.contrib.handlers import ProgressBar
+from ignite.engine import Events
 
 
-class Trainer:
+class MedSegSupervisedTrainer:
     def __init__(
         self,
         run_name,
-        device,
+        cfg_path,
         model,
+        trainer,
+        evaluator,
         train_dataloader,
         val_dataloader,
-        loss_function,
-        optimizer,
-        scheduler,
-        train_cfg,
-        val_cfg,
-        inferer,
-        key_val_metric,
-        val_post_pred_transforms=None,
-        val_post_label_transforms=None,
-        decollate=True,
     ):
-        self._run_name = run_name
-        self._device = device
-        self._model = model.to(device)
+        self.run_name = run_name
+        self.cfg_path = cfg_path
+        self.model = model
+        self.trainer = trainer
+        self.evaluator = evaluator
+        self.train_dataloader = train_dataloader
+        self.val_dataloader = val_dataloader
+        self.best_metric = -1
 
-        self._train_dataloader = train_dataloader
-        self._val_dataloader = val_dataloader
+        self.trainer.add_event_handler(Events.STARTED, self.on_started)
+        self.trainer.add_event_handler(Events.EPOCH_STARTED, self.on_epoch_started)
+        self.trainer.add_event_handler(Events.EPOCH_COMPLETED, self.on_epoch_completed)
+        self.evaluator.add_event_handler(
+            Events.EPOCH_COMPLETED, self.on_validation_completed
+        )
+        self.trainer.add_event_handler(
+            Events.ITERATION_STARTED, self.on_iteration_started
+        )
+        self.trainer.add_event_handler(
+            Events.ITERATION_COMPLETED, self.on_iteration_completed
+        )
+        self.trainer.add_event_handler(Events.COMPLETED, self.on_completed)
 
-        self._loss_function = loss_function
-        self._optimizer = optimizer
-        self._scheduler = scheduler
+    def on_started(self, engine):
+        self.pbar = ProgressBar(persist=True)
+        self.pbar.attach(self.trainer, metric_names="all")
+        mlflow.start_run(run_name=self.run_name)
+        mlflow.log_artifact(self.cfg_path)
 
-        self._inferer = inferer
-        assert len(key_val_metric.values()) == 1
-        for k, v in key_val_metric.items():
-            self._key_val_metric_name = k
-            self._key_val_metric_fn = v
+    def on_epoch_started(self, engine):
+        pass
 
-        self._val_post_pred_transforms = val_post_pred_transforms
-        self._val_post_label_transforms = val_post_label_transforms
-        self._decollate = decollate
+    def on_epoch_completed(self, engine):
+        self.evaluator.run(self.val_dataloader)
 
-        self._train_cfg = self._init_loop_cfg(train_cfg)
-        self._val_cfg = self._init_loop_cfg(val_cfg)
+    def on_validation_completed(self, engine):
+        metrics = self.evaluator.state.metrics
+        mean_dice = metrics["mean_dice"]
+        mlflow.log_metric(key="mean_dice", value=mean_dice, step=engine.state.epoch)
+        if mean_dice > self.best_metric:
+            self.best_metric = mean_dice
+            mlflow.pytorch.log_model(self.model, "model")
+            self.pbar.log_message("saved new best metric model")
+        self.pbar.log_message(
+            f"Validation Results - Epoch: {engine.state.epoch} Avg accuracy: {mean_dice}"
+        )
+        self.pbar.n = self.pbar.last_print_n = 0
+        pass
 
-    def _init_loop_cfg(self, loop_cfg):
-        if loop_cfg is None:
-            return loop_cfg
-        if "iter" not in loop_cfg:
-            loop_cfg["iter"] = 0
-        if ("max_epochs" in loop_cfg) and ("epoch" not in loop_cfg):
-            loop_cfg["epoch"] = 0
-        return loop_cfg
+    def on_iteration_started(self, engine):
+        pass
 
-    def train(self, logger=None):
-        if logger is None:
-            logger = logging.getLogger()
+    def on_iteration_completed(self, engine):
+        loss = engine.state.output
+        mlflow.log_metric("train_iter_loss", loss, step=engine.state.iteration)
 
-        # init weights?
-        best_metric = -1
-        best_metric_epoch = -1
-        # https://github.com/mlflow/mlflow/blob/master/examples/pytorch/logging/pytorch_log_model.ipynb
-        with mlflow.start_run(run_name=self._run_name) as run:
-            for epoch_idx in range(
-                self._train_cfg["epoch"], self._train_cfg["max_epochs"]
-            ):
-                logger.info(
-                    f"epoch {self._train_cfg['epoch'] + 1}/{self._train_cfg['max_epochs']}"
-                )
-                self._model.train()
-                epoch_loss = 0
-                step = 0
-                for _, batch_data in enumerate(self._train_dataloader):
-                    inputs, labels = batch_data["image"].to(self._device), batch_data[
-                        "label"
-                    ].to(self._device)
-                    self._optimizer.zero_grad()
-                    outputs = self._model(inputs)
-                    loss = self._loss_function(outputs, labels)
-                    loss.backward()
-                    self._optimizer.step()
-                    epoch_loss += loss.item()
-                    mlflow.log_metric(
-                        "train_iter_loss", loss.item(), step=self._train_cfg["iter"]
-                    )
-                    self._scheduler.step()
-                    self._train_cfg["iter"] += 1
-                    step += 1
+    def on_completed(self, engine):
+        mlflow.end_run()
 
-                epoch_loss /= step
-                logger.info(
-                    f"epoch {self._train_cfg['epoch']} average loss: {epoch_loss:.4f}"
-                )
-                self._train_cfg["epoch"] += 1
-
-                # validation
-                if (epoch_idx + 1) % self._val_cfg["val_interval"] == 0:
-                    metric = self.validate()
-                    if metric > best_metric:
-                        best_metric = metric
-                        best_metric_epoch = epoch_idx
-                        mlflow.pytorch.log_model(
-                            self._model,
-                            "model",
-                        )
-                        logger.info("saved new best metric model")
-                    mlflow.log_metric(
-                        key=self._key_val_metric_name, value=metric, step=epoch_idx
-                    )
-                    logger.info(
-                        "current epoch: {} current mean dice: {:.4f} best mean dice: {:.4f} at epoch {}".format(
-                            epoch_idx + 1, metric, best_metric, best_metric_epoch
-                        )
-                    )
-        return run
-
-    def validate(self):
-        self._model.eval()
-
-        for val_data in self._val_dataloader:
-            inputs, labels = val_data["image"].to(self._device), val_data["label"].to(
-                self._device
-            )
-            outputs = self._inferer(inputs, self._model)
-            if self._decollate:
-                outputs = decollate_batch(outputs)
-                labels = decollate_batch(labels)
-            outputs = [self._val_post_pred_transforms(i) for i in outputs]
-            labels = [self._val_post_label_transforms(i) for i in labels]
-            self._key_val_metric_fn(outputs, labels)
-
-        metric = self._key_val_metric_fn.aggregate().item()
-        self._key_val_metric_fn.reset()
-        return metric
+    def run(self, max_epochs):
+        self.trainer.run(self.train_dataloader, max_epochs=max_epochs)
