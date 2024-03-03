@@ -42,7 +42,11 @@ class ImageCASDataset(Randomizable, CacheDataset):
             img_basename = os.path.basename(img_path)
             mask_basename = img_basename.replace("img", "label")
             self.datalist.append(
-                {"image": img_path, "label": os.path.join(mask_dir, mask_basename)}
+                {
+                    "image": img_path,
+                    "label": os.path.join(mask_dir, mask_basename),
+                    "id": img_basename.split(".")[0],
+                }
             )
 
         data = self._generate_data_list()

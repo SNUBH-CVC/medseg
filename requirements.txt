@@ -4,3 +4,5 @@ nibabel
 wandb
 pytorch-ignite
 scikit-image
+mlflow
+einops
