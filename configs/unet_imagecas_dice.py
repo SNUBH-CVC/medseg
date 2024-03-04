@@ -1,0 +1,150 @@
+import torch
+from monai.data import DataLoader
+from monai.handlers import MeanDice
+from monai.inferers import SlidingWindowInferer
+from monai.losses.dice import DiceLoss
+from monai.networks.nets.unet import UNet
+from monai.transforms import (Activations, AsDiscrete, Compose,
+                              EnsureChannelFirstd, EnsureTyped, LoadImaged,
+                              NormalizeIntensityd, RandCropByPosNegLabeld,
+                              RandScaleIntensityd, RandShiftIntensityd,
+                              ScaleIntensityRangePercentilesd)
+
+from medseg.dataset import ImageCasDataset
+
+root_dir = "/data/imagecas"
+roi_size = (128, 128, 64)
+
+eval_transform = Compose(
+    [
+        LoadImaged(keys=["image", "label"]),
+        EnsureChannelFirstd(keys=["image", "label"]),
+        ScaleIntensityRangePercentilesd(
+            keys=["image"], lower=0.05, upper=0.95, b_min=-4000, b_max=4000
+        ),
+        NormalizeIntensityd(keys=["image"]),
+        EnsureTyped(keys=["image", "label"]),
+    ]
+)
+eval_post_pred_transforms = Compose(
+    [Activations(sigmoid=True), AsDiscrete(threshold=0.5)]
+)
+metrics = {"mean_dice": MeanDice()}
+eval_post_label_transforms = Compose([AsDiscrete(threshold=0.5)])
+inferer = SlidingWindowInferer(roi_size=roi_size, sw_batch_size=4, overlap=0.25)
+evaluator_kwargs = dict(
+    metrics=metrics,
+    prepare_batch=lambda batch, device, non_blocking: (
+        batch["image"].to(device),
+        batch["label"].to(device),
+    ),
+    output_transform=lambda x, y, y_pred: (
+        [eval_post_pred_transforms(i) for i in y_pred],
+        [eval_post_label_transforms(i) for i in y],
+    ),
+    model_fn=lambda model, x: inferer(x, model),
+)
+
+
+def prepare_train():
+    num_workers = 4
+    val_frac = 0.0
+    batch_size = 1
+    max_epochs = 2
+
+    # transform
+    train_transform = Compose(
+        [
+            LoadImaged(keys=["image", "label"]),
+            EnsureChannelFirstd(keys=["image", "label"]),
+            # https://github.com/BubblyYi/Coronary-Artery-Tracking-via-3D-CNN-Classification/blob/master/ostiapoints_train_tools/ostia_net_data_provider_aug.py
+            ScaleIntensityRangePercentilesd(
+                keys=["image"], lower=0.05, upper=0.95, b_min=-4000, b_max=4000
+            ),
+            NormalizeIntensityd(keys=["image"]),
+            # RandScaleIntensityd(keys=["image"], factors=0.1, prob=1.0),
+            # RandShiftIntensityd(keys=["image"], offsets=0.1, prob=1.0),
+            EnsureTyped(keys=["image", "label"]),
+            RandCropByPosNegLabeld(
+                keys=["image", "label"],
+                label_key="label",
+                spatial_size=roi_size,
+                pos=1,
+                neg=1,
+                num_samples=4,
+                image_key="image",
+            ),
+        ]
+    )
+
+    # create a training data loader
+    train_dataset = ImageCasDataset(
+        dataset_dir=root_dir,
+        section="training",
+        transform=train_transform,
+        cache_rate=0.0,
+        val_frac=val_frac,
+    )
+    train_dataloader = DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+    )
+    val_dataset = ImageCasDataset(
+        dataset_dir=root_dir,
+        section="training",
+        transform=eval_transform,
+        cache_rate=0.0,
+        val_frac=val_frac,
+    )
+    val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1)
+
+    UNet_metadata = {
+        "spatial_dims": 3,
+        "in_channels": 1,
+        "out_channels": 1,
+        "channels": (16, 32, 64, 128, 256),
+        "strides": (2, 2, 2, 2),
+        "num_res_units": 2,
+    }
+    model = UNet(**UNet_metadata)
+    loss_function = DiceLoss(sigmoid=True)
+    optimizer = torch.optim.Adam(model.parameters(), 1e-3, weight_decay=1e-5)
+
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.9)
+    key_metric = "mean_dice"
+
+    trainer_kwargs = dict(
+        prepare_batch=lambda batch, device, non_blocking: (
+            batch["image"].to(device),
+            batch["label"].to(device),
+        ),
+    )
+    return dict(
+        model=model,
+        optimizer=optimizer,
+        loss_function=loss_function,
+        train_dataloader=train_dataloader,
+        val_dataloader=val_dataloader,
+        trainer_kwargs=trainer_kwargs,
+        evaluator_kwargs=evaluator_kwargs,
+        max_epochs=max_epochs,
+        key_metric=key_metric,
+    )
+
+
+def prepare_test():
+    test_frac = 0.2
+
+    test_dataset = ImageCasDataset(
+        dataset_dir=root_dir,
+        section="training",
+        transform=eval_transform,
+        cache_rate=0.0,
+        val_frac=test_frac,
+    )
+    test_dataloader = DataLoader(
+        test_dataset, batch_size=1, shuffle=False, num_workers=1
+    )
+    return dict(
+        dataloader=test_dataloader,
+        evaluator_kwargs=evaluator_kwargs,
+    )
