@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import mlflow
 from ignite.engine import create_supervised_evaluator
 
-from medseg.core.utils import import_attribute, set_mlflow_tracking_uri
+from medseg.core.utils import import_attribute
 
 
 def parse_args():

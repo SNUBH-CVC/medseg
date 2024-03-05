@@ -1,6 +1,7 @@
 ## MedSeg
 
 ## Installation
+Install [SegMamba](https://github.com/ge-xing/SegMamba).
 ```bash
 # casual-conv1d
 cd 3rdparty/casual-conv1d
@@ -9,7 +10,10 @@ python setup.py install --user
 # mamba
 cd 3rdparty/mamba
 python setup.py install --user
+```
 
+Install other requirements.
+```
 pip install -r requirements.txt
 ```
 
@@ -17,13 +21,13 @@ pip install -r requirements.txt
 - ImageCAS
 
 ## Benchmarks
-### Base architecture
-- UNet3D
+### Architecture
+- UNet
 - SegMamba
 - UNETR
 - SwinUNETR
 
-### Additional feature
+### Feature
 - skeletonize layer
 
 ### Loss
@@ -32,7 +36,11 @@ pip install -r requirements.txt
 - topological 
 
 ## Train
-`python tools/train.py`
+```
+python tools/train.py [cfg_path]
+```
 
-## MLflow
-`mlflow server --port 7777 --backend-store-uri file:///data/mlruns`
+## Test
+```
+python tools/test.py [run_id] --mlflow_tracking_uri [mlflow_tracking_uri]
+```

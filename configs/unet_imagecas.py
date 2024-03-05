@@ -20,6 +20,7 @@ root_dir = "/data"
 mlflow_tracking_uri = "file:///data/mlruns"
 dataset_dir = "/data/imagecas"
 roi_size = (128, 128, 64)
+val_frac = 0.2
 cfg_path = __file__
 experiment_name = os.path.splitext(os.path.basename(cfg_path))[0]
 
@@ -57,9 +58,8 @@ evaluator_kwargs = dict(
 
 def prepare_train():
     num_workers = 4
-    val_frac = 0.0
-    batch_size = 1
-    max_epochs = 1
+    batch_size = 8
+    max_epochs = 200
 
     # transform
     train_transform = Compose(
@@ -99,7 +99,7 @@ def prepare_train():
     )
     val_dataset = ImageCasDataset(
         dataset_dir=dataset_dir,
-        section="training",
+        section="validation",
         transform=eval_transform,
         cache_rate=0.0,
         val_frac=val_frac,
@@ -168,7 +168,7 @@ def prepare_test():
 
     test_dataset = ImageCasDataset(
         dataset_dir=dataset_dir,
-        section="training",
+        section="test",
         transform=eval_transform,
         cache_rate=0.0,
         val_frac=test_frac,
