@@ -33,3 +33,6 @@ pip install -r requirements.txt
 
 ## Train
 `python tools/train.py`
+
+## MLflow
+`mlflow server --port 7777 --backend-store-uri file:///data/mlruns`

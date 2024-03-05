@@ -7,7 +7,7 @@ from monai.transforms import Randomizable
 
 
 # https://github.com/Project-MONAI/tutorials/blob/main/modules/public_datasets.ipynb
-class ImageCASDataset(Randomizable, CacheDataset):
+class ImageCasDataset(Randomizable, CacheDataset):
     resource = None
     md5 = None
 

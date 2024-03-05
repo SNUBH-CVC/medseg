@@ -1,3 +1,6 @@
+import os
+from datetime import datetime
+
 import torch
 from monai.data import DataLoader
 from monai.handlers import MeanDice
@@ -11,9 +14,14 @@ from monai.transforms import (Activations, AsDiscrete, Compose,
                               ScaleIntensityRangePercentilesd)
 
 from medseg.dataset import ImageCasDataset
+from medseg.handler import MedSegMLFlowHandler
 
-root_dir = "/data/imagecas"
+root_dir = "/data"
+mlflow_tracking_uri = "file:///data/mlruns"
+dataset_dir = "/data/imagecas"
 roi_size = (128, 128, 64)
+cfg_path = __file__
+experiment_name = os.path.splitext(os.path.basename(cfg_path))[0]
 
 eval_transform = Compose(
     [
@@ -29,7 +37,8 @@ eval_transform = Compose(
 eval_post_pred_transforms = Compose(
     [Activations(sigmoid=True), AsDiscrete(threshold=0.5)]
 )
-metrics = {"mean_dice": MeanDice()}
+key_metric_name = "mean_dice"
+metrics = {key_metric_name: MeanDice()}
 eval_post_label_transforms = Compose([AsDiscrete(threshold=0.5)])
 inferer = SlidingWindowInferer(roi_size=roi_size, sw_batch_size=4, overlap=0.25)
 evaluator_kwargs = dict(
@@ -50,7 +59,7 @@ def prepare_train():
     num_workers = 4
     val_frac = 0.0
     batch_size = 1
-    max_epochs = 2
+    max_epochs = 1
 
     # transform
     train_transform = Compose(
@@ -79,7 +88,7 @@ def prepare_train():
 
     # create a training data loader
     train_dataset = ImageCasDataset(
-        dataset_dir=root_dir,
+        dataset_dir=dataset_dir,
         section="training",
         transform=train_transform,
         cache_rate=0.0,
@@ -89,7 +98,7 @@ def prepare_train():
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
     )
     val_dataset = ImageCasDataset(
-        dataset_dir=root_dir,
+        dataset_dir=dataset_dir,
         section="training",
         transform=eval_transform,
         cache_rate=0.0,
@@ -108,9 +117,27 @@ def prepare_train():
     model = UNet(**UNet_metadata)
     loss_function = DiceLoss(sigmoid=True)
     optimizer = torch.optim.Adam(model.parameters(), 1e-3, weight_decay=1e-5)
-
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.9)
-    key_metric = "mean_dice"
+
+    run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+    train_mlflow_handler = MedSegMLFlowHandler(
+        mlflow_tracking_uri,
+        output_transform=lambda x: x,
+        experiment_name=experiment_name,
+        run_name=run_name,
+        close_on_complete=True,
+        artifacts_at_start={cfg_path: "config"},
+    )
+    val_mlflow_hanlder = MedSegMLFlowHandler(
+        mlflow_tracking_uri,
+        output_transform=lambda x: None,
+        experiment_name=experiment_name,
+        run_name=run_name,
+        close_on_complete=True,
+        save_dict={"model": model},
+        key_metric_name=key_metric_name,
+        log_model=True,
+    )
 
     trainer_kwargs = dict(
         prepare_batch=lambda batch, device, non_blocking: (
@@ -118,16 +145,21 @@ def prepare_train():
             batch["label"].to(device),
         ),
     )
+    trainer_handlers = [train_mlflow_handler]
+    evaluator_handlers = [val_mlflow_hanlder]
+
     return dict(
         model=model,
         optimizer=optimizer,
         loss_function=loss_function,
+        scheduler=scheduler,
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
         trainer_kwargs=trainer_kwargs,
         evaluator_kwargs=evaluator_kwargs,
         max_epochs=max_epochs,
-        key_metric=key_metric,
+        trainer_handlers=trainer_handlers,
+        evaluator_handlers=evaluator_handlers,
     )
 
 
@@ -135,7 +167,7 @@ def prepare_test():
     test_frac = 0.2
 
     test_dataset = ImageCasDataset(
-        dataset_dir=root_dir,
+        dataset_dir=dataset_dir,
         section="training",
         transform=eval_transform,
         cache_rate=0.0,
@@ -144,7 +176,10 @@ def prepare_test():
     test_dataloader = DataLoader(
         test_dataset, batch_size=1, shuffle=False, num_workers=1
     )
+    evaluation_handlers = []
+
     return dict(
         dataloader=test_dataloader,
         evaluator_kwargs=evaluator_kwargs,
+        evaluator_handlers=evaluation_handlers,
     )
