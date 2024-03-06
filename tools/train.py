@@ -17,7 +17,7 @@ from medseg.core.utils import import_attribute
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("cfg_path", type=str)
-    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--multi_gpu", action="store_true")
     return parser.parse_args()
 

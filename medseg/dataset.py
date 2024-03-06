@@ -1,7 +1,7 @@
-import glob
 import os
 import sys
 
+import pandas as pd
 from monai.data import CacheDataset
 from monai.transforms import Randomizable
 
@@ -18,38 +18,37 @@ class ImageCasDataset(Randomizable, CacheDataset):
         transform,
         download=False,
         seed=0,
-        val_frac=0.2,
-        test_frac=0.2,
         cache_num=sys.maxsize,
         cache_rate=1.0,
         num_workers=0,
+        k=1,
     ):
         if not os.path.isdir(dataset_dir):
             raise ValueError("Root directory root_dir must be a directory.")
         self.section = section
-        self.val_frac = val_frac
-        self.test_frac = test_frac
         self.set_random_state(seed=seed)
-        # split_filename = "imageCAS_data_split.xlsx"
+        assert 1 <= k <= 4
+        split_filename = "imageCAS_data_split.csv"
+        split_d = pd.read_csv(os.path.join(dataset_dir, split_filename))[
+            ["id", f"fold_{k}"]
+        ].values.tolist()
         if download:
             raise ValueError("Download the dataset manually.")
 
-        img_dir = os.path.join(dataset_dir, "images")
-        mask_dir = os.path.join(dataset_dir, "masks")
-        img_list = glob.glob(os.path.join(img_dir, "*.img.nii.gz"))
-        self.datalist = []
-        for img_path in img_list:
-            img_basename = os.path.basename(img_path)
-            mask_basename = img_basename.replace("img", "label")
-            self.datalist.append(
-                {
-                    "image": img_path,
-                    "label": os.path.join(mask_dir, mask_basename),
-                    "id": img_basename.split(".")[0],
-                }
-            )
+        data = []
+        for _id, _section in split_d:
+            if _section == section:
+                data.append(
+                    {
+                        "image": os.path.join(
+                            dataset_dir, "images", f"{_id}.img.nii.gz"
+                        ),
+                        "label": os.path.join(
+                            dataset_dir, "masks", f"{_id}.label.nii.gz"
+                        ),
+                    }
+                )
 
-        data = self._generate_data_list()
         super().__init__(
             data,
             transform,
@@ -57,30 +56,3 @@ class ImageCasDataset(Randomizable, CacheDataset):
             cache_rate=cache_rate,
             num_workers=num_workers,
         )
-
-    def randomize(self, data=None):
-        self.rann = self.R.random()
-
-    def _generate_data_list(self):
-        data = []
-        for d in self.datalist:
-            self.randomize()
-            if self.section == "training":
-                if self.rann < self.val_frac + self.test_frac:
-                    continue
-            elif self.section == "validation":
-                if self.rann >= self.val_frac:
-                    continue
-            elif self.section == "test":
-                if (
-                    self.rann < self.val_frac
-                    or self.rann >= self.val_frac + self.test_frac
-                ):
-                    continue
-            else:
-                raise ValueError(
-                    f"Unsupported section: {self.section}, "
-                    "available options are ['training', 'validation', 'test']."
-                )
-            data.append(d)
-        return data

@@ -76,6 +76,7 @@ class MedSegMLFlowHandler(MLFlowHandler):
         if metric > self.best_metric:
             self.best_metric = metric
             # MlflowClient doesn't support log_model
+            mlflow.set_tracking_uri(self.client.tracking_uri)
             with mlflow.start_run(run_id=self.cur_run.info.run_id):
                 mlflow.pytorch.log_model(self.save_dict["model"], "model")
 

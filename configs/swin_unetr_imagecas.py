@@ -6,7 +6,7 @@ from monai.data import DataLoader
 from monai.handlers import MeanDice, StatsHandler, from_engine
 from monai.inferers import SlidingWindowInferer
 from monai.losses.dice import DiceLoss
-from monai.networks.nets.unet import UNet
+from monai.networks.nets.swin_unetr import SwinUNETR
 from monai.transforms import (Activations, AsDiscrete, Compose,
                               EnsureChannelFirstd, EnsureTyped, LoadImaged,
                               NormalizeIntensityd, RandCropByPosNegLabeld,
@@ -58,7 +58,7 @@ evaluator_kwargs = dict(
 def prepare_train():
     num_workers = 4
     batch_size = 32
-    max_epochs = 500
+    max_epochs = 200
 
     train_transform = Compose(
         [
@@ -100,14 +100,14 @@ def prepare_train():
     )
     val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1)
 
-    model = UNet(
-        spatial_dims=3,
+    model = SwinUNETR(
+        img_size=roi_size,
         in_channels=1,
         out_channels=1,
-        channels=(16, 32, 64, 128, 256),
-        strides=(2, 2, 2, 2),
-        num_res_units=2,
+        feature_size=48,
+        use_checkpoint=True,
     )
+    model.load(torch.load("./pretrained/model_swinvit.pt"))
     loss_function = DiceLoss(sigmoid=True)
     optimizer = torch.optim.Adam(model.parameters(), 1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.9)
@@ -134,7 +134,7 @@ def prepare_train():
     train_stats_handler = StatsHandler(
         name="train_log",
         tag_name="train_loss",
-        output_transform=lambda x: x,
+        output_transform=from_engine(["loss"], first=True),
     )
     val_stats_handler = StatsHandler(name="train_log", output_transform=lambda x: None)
 
