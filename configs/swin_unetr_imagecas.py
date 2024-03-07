@@ -3,7 +3,7 @@ from datetime import datetime
 
 import torch
 from monai.data import DataLoader
-from monai.handlers import MeanDice, StatsHandler, from_engine
+from monai.handlers import MeanDice, StatsHandler
 from monai.inferers import SlidingWindowInferer
 from monai.losses.dice import DiceLoss
 from monai.networks.nets.swin_unetr import SwinUNETR
@@ -57,8 +57,8 @@ evaluator_kwargs = dict(
 
 def prepare_train():
     num_workers = 4
-    batch_size = 32
-    max_epochs = 200
+    batch_size = 4
+    max_epochs = 500
 
     train_transform = Compose(
         [
@@ -107,7 +107,7 @@ def prepare_train():
         feature_size=48,
         use_checkpoint=True,
     )
-    model.load(torch.load("./pretrained/model_swinvit.pt"))
+    model.load_from(weights=torch.load("./pretrained/model_swinvit.pt"))
     loss_function = DiceLoss(sigmoid=True)
     optimizer = torch.optim.Adam(model.parameters(), 1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.9)
@@ -118,25 +118,28 @@ def prepare_train():
         output_transform=lambda x: x,
         experiment_name=experiment_name,
         run_name=run_name,
-        close_on_complete=True,
         artifacts_at_start={cfg_path: "config"},
     )
-    val_mlflow_hanlder = MedSegMLFlowHandler(
+    val_mlflow_hanlder = lambda trainer: MedSegMLFlowHandler(
         mlflow_tracking_uri,
         output_transform=lambda x: None,
         experiment_name=experiment_name,
         run_name=run_name,
-        close_on_complete=True,
         save_dict={"model": model},
         key_metric_name=key_metric_name,
+        global_epoch_transform=lambda x: trainer.state.epoch,
         log_model=True,
     )
     train_stats_handler = StatsHandler(
         name="train_log",
         tag_name="train_loss",
-        output_transform=from_engine(["loss"], first=True),
+        output_transform=lambda x: x,
     )
-    val_stats_handler = StatsHandler(name="train_log", output_transform=lambda x: None)
+    val_stats_handler = lambda trainer: StatsHandler(
+        name="train_log",
+        output_transform=lambda x: None,
+        global_epoch_transform=lambda x: trainer.state.epoch,
+    )
 
     trainer_kwargs = dict(
         prepare_batch=lambda batch, device, non_blocking: (

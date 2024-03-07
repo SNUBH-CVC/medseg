@@ -3,7 +3,7 @@ from datetime import datetime
 
 import torch
 from monai.data import DataLoader
-from monai.handlers import MeanDice, StatsHandler, from_engine
+from monai.handlers import MeanDice, StatsHandler
 from monai.inferers import SlidingWindowInferer
 from monai.losses.dice import DiceLoss
 from monai.networks.nets.unet import UNet
@@ -11,6 +11,7 @@ from monai.transforms import (Activations, AsDiscrete, Compose,
                               EnsureChannelFirstd, EnsureTyped, LoadImaged,
                               NormalizeIntensityd, RandCropByPosNegLabeld,
                               RandScaleIntensityd, RandShiftIntensityd,
+                              RandSpatialCropd,
                               ScaleIntensityRangePercentilesd)
 
 from medseg.dataset import ImageCasDataset
@@ -18,7 +19,7 @@ from medseg.handler import MedSegMLFlowHandler
 
 mlflow_tracking_uri = "file:///data/mlruns"
 dataset_dir = "/data/imagecas"
-roi_size = (128, 128, 64)
+roi_size = (256, 256, 128)
 cfg_path = __file__
 experiment_name = os.path.splitext(os.path.basename(cfg_path))[0]
 
@@ -57,7 +58,7 @@ evaluator_kwargs = dict(
 
 def prepare_train():
     num_workers = 4
-    batch_size = 32
+    batch_size = 4
     max_epochs = 500
 
     train_transform = Compose(
@@ -72,15 +73,16 @@ def prepare_train():
             # RandScaleIntensityd(keys=["image"], factors=0.1, prob=1.0),
             # RandShiftIntensityd(keys=["image"], offsets=0.1, prob=1.0),
             EnsureTyped(keys=["image", "label"]),
-            RandCropByPosNegLabeld(
-                keys=["image", "label"],
-                label_key="label",
-                spatial_size=roi_size,
-                pos=1,
-                neg=1,
-                num_samples=4,
-                image_key="image",
-            ),
+            RandSpatialCropd(keys=["image", "label"], roi_size=roi_size),
+            # RandCropByPosNegLabeld(
+            #     keys=["image", "label"],
+            #     label_key="label",
+            #     spatial_size=roi_size,
+            #     pos=1,
+            #     neg=1,
+            #     num_samples=4,
+            #     image_key="image",
+            # ),
         ]
     )
     train_dataset = ImageCasDataset(
@@ -118,17 +120,16 @@ def prepare_train():
         output_transform=lambda x: x,
         experiment_name=experiment_name,
         run_name=run_name,
-        close_on_complete=True,
         artifacts_at_start={cfg_path: "config"},
     )
-    val_mlflow_hanlder = MedSegMLFlowHandler(
+    val_mlflow_hanlder = lambda trainer: MedSegMLFlowHandler(
         mlflow_tracking_uri,
         output_transform=lambda x: None,
         experiment_name=experiment_name,
         run_name=run_name,
-        close_on_complete=True,
         save_dict={"model": model},
         key_metric_name=key_metric_name,
+        global_epoch_transform=lambda x: trainer.state.epoch,
         log_model=True,
     )
     train_stats_handler = StatsHandler(
@@ -136,7 +137,11 @@ def prepare_train():
         tag_name="train_loss",
         output_transform=lambda x: x,
     )
-    val_stats_handler = StatsHandler(name="train_log", output_transform=lambda x: None)
+    val_stats_handler = lambda trainer: StatsHandler(
+        name="train_log",
+        output_transform=lambda x: None,
+        global_epoch_transform=lambda x: trainer.state.epoch,
+    )
 
     trainer_kwargs = dict(
         prepare_batch=lambda batch, device, non_blocking: (

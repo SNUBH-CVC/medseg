@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import sys
+import types
 
 import torch
 import torch.nn as nn
@@ -52,7 +53,11 @@ def main():
     for handler in trainer_handlers:
         handler.attach(trainer)
     for handler in evaluator_handlers:
-        handler.attach(evaluator)
+        if isinstance(handler, types.LambdaType):
+            # need trainer as an argument
+            handler(trainer).attach(evaluator)
+        else:
+            handler.attach(evaluator)
 
     trainer.add_event_handler(
         Events.EPOCH_COMPLETED, lambda _: evaluator.run(val_dataloader)
