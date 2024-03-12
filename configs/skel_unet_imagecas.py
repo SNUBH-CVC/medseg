@@ -1,48 +1,41 @@
 import os
 from datetime import datetime
 
-import numpy as np
 import torch
-from batchgenerators.transforms.color_transforms import (
-    BrightnessMultiplicativeTransform, ContrastAugmentationTransform,
-    GammaTransform)
-from batchgenerators.transforms.noise_transforms import (
-    GaussianBlurTransform, GaussianNoiseTransform)
-from batchgenerators.transforms.resample_transforms import \
-    SimulateLowResolutionTransform
-from batchgenerators.transforms.spatial_transforms import (MirrorTransform,
-                                                           SpatialTransform)
 from monai.data import DataLoader
 from monai.handlers import LrScheduleHandler, MeanDice, StatsHandler
 from monai.inferers import SlidingWindowInferer
 from monai.losses.dice import DiceLoss
-from monai.networks.nets.unet import UNet
 from monai.transforms import (Activations, AsDiscrete, Compose,
                               EnsureChannelFirstd, EnsureTyped, LoadImaged,
-                              NormalizeIntensityd, RandSpatialCropd,
-                              ScaleIntensityRangePercentilesd, Spacingd,
-                              SqueezeDimd, adaptor)
+                              NormalizeIntensityd, RandAdjustContrastd,
+                              RandAxisFlipd, RandGaussianNoised,
+                              RandGaussianSmoothd, RandRotated,
+                              RandScaleIntensityd, RandSpatialCropd, RandZoomd,
+                              ScaleIntensityRangePercentilesd, Spacingd)
 
 from medseg.dataset import ImageCasDataset
 from medseg.handlers import MedSegMLFlowHandler
+from medseg.losses import clDiceLoss
+from medseg.models import SkelUNet
 
 mlflow_tracking_uri = "file:///data/mlruns"
 dataset_dir = "/data/imagecas"
-roi_size = (256, 256, 128)
+roi_size = (128, 128, 64)
 cfg_path = __file__
 experiment_name = os.path.splitext(os.path.basename(cfg_path))[0]
 
 pixdim = [0.35, 0.35, 0.5]  # median
 eval_transform = Compose(
     [
-        LoadImaged(keys=["image", "label"]),
-        EnsureChannelFirstd(keys=["image", "label"]),
+        LoadImaged(keys=["image", "label", "skeleton"]),
+        EnsureChannelFirstd(keys=["image", "label", "skeleton"]),
         ScaleIntensityRangePercentilesd(
             keys=["image"], lower=0.05, upper=0.95, b_min=-4000, b_max=4000
         ),
+        Spacingd(keys=["image", "label", "skeleton"], pixdim=pixdim),
         NormalizeIntensityd(keys=["image"]),
-        Spacingd(keys=["image", "label"], pixdim=pixdim),
-        EnsureTyped(keys=["image", "label"]),
+        EnsureTyped(keys=["image", "label", "skeleton"]),
     ]
 )
 eval_post_pred_transforms = Compose(
@@ -57,11 +50,11 @@ evaluator_kwargs = dict(
     metrics=metrics,
     prepare_batch=lambda batch, device, non_blocking: (
         batch["image"].to(device),
-        batch["label"].to(device),
+        (batch["label"].to(device), batch["skeleton"].to(device)),
     ),
     output_transform=lambda x, y, y_pred: (
-        [eval_post_pred_transforms(i) for i in y_pred],
-        [eval_post_label_transforms(i) for i in y],
+        [eval_post_pred_transforms(i) for i in y_pred[0]],
+        [eval_post_label_transforms(i) for i in y[0]],
     ),
     model_fn=lambda model, x: inferer(x, model),
 )
@@ -69,107 +62,37 @@ evaluator_kwargs = dict(
 
 def prepare_train():
     num_workers = 4
-    batch_size = 16
+    batch_size = 2
     max_epochs = 400
 
-    rotation_range = (-30.0 / 360 * 2 * np.pi, 30.0 / 360 * 2 * np.pi)
+    range_rotation = (-0.523, 0.523)
+    prob = 0.2
     train_transform = Compose(
         [
-            LoadImaged(keys=["image", "label"]),
-            EnsureChannelFirstd(keys=["image", "label"]),
+            LoadImaged(keys=["image", "label", "skeleton"]),
+            EnsureChannelFirstd(keys=["image", "label", "skeleton"]),
             # https://github.com/BubblyYi/Coronary-Artery-Tracking-via-3D-CNN-Classification/blob/master/ostiapoints_train_tools/ostia_net_data_provider_aug.py
             ScaleIntensityRangePercentilesd(
                 keys=["image"], lower=0.05, upper=0.95, b_min=-4000, b_max=4000
             ),
-            Spacingd(keys=["image", "label"], pixdim=pixdim),
+            Spacingd(keys=["image", "label", "skeleton"], pixdim=pixdim),
             NormalizeIntensityd(keys=["image"]),
-            RandSpatialCropd(keys=["image", "label"], roi_size=roi_size),
-            EnsureChannelFirstd(keys=["image", "label"], channel_dim="no_channel"),
-            EnsureTyped(keys=["image", "label"], data_type="numpy"),
+            EnsureTyped(keys=["image", "label", "skeleton"]),
+            RandSpatialCropd(keys=["image", "label", "skeleton"], roi_size=roi_size),
             # https://github.com/PierreRouge/Cascaded-U-Net-for-vessel-segmentation
-            adaptor(
-                SpatialTransform(
-                    roi_size,
-                    patch_center_dist_from_border=None,
-                    do_elastic_deform=False,
-                    alpha=(0, 0),
-                    sigma=(0, 0),
-                    do_rotation=True,
-                    angle_x=rotation_range,
-                    angle_y=rotation_range,
-                    angle_z=rotation_range,
-                    p_rot_per_axis=1,
-                    do_scale=True,
-                    scale=(0.7, 1.4),
-                    border_mode_data="constant",
-                    border_cval_data=0,
-                    order_data=3,
-                    border_mode_seg="constant",
-                    border_cval_seg=-1,
-                    order_seg=1,
-                    random_crop=False,
-                    p_el_per_sample=0,
-                    p_scale_per_sample=0.2,
-                    p_rot_per_sample=0.2,
-                    independent_scale_for_each_axis=False,
-                    data_key="image",
-                    label_key=("label"),
-                ),
-                {"image": "image", "label": "label"},
+            RandRotated(
+                ["image", "label", "skeleton"],
+                prob=prob,
+                range_x=range_rotation,
+                range_y=range_rotation,
+                range_z=range_rotation,
             ),
-            adaptor(
-                GaussianNoiseTransform(p_per_sample=0.1, data_key="image"),
-                {"image": "image", "label": "label"},
-            ),
-            adaptor(
-                GaussianBlurTransform(
-                    (0.5, 1.0),
-                    different_sigma_per_channel=True,
-                    p_per_sample=0.2,
-                    p_per_channel=0.5,
-                    data_key="image",
-                ),
-                {"image": "image", "label": "label"},
-            ),
-            adaptor(
-                BrightnessMultiplicativeTransform(
-                    multiplier_range=(0.75, 1.25), p_per_sample=0.15, data_key="image"
-                ),
-                {"image": "image", "label": "label"},
-            ),
-            adaptor(
-                ContrastAugmentationTransform(p_per_sample=0.15, data_key="image"),
-                {"image": "image", "label": "label"},
-            ),
-            adaptor(
-                SimulateLowResolutionTransform(
-                    zoom_range=(0.5, 1),
-                    per_channel=True,
-                    p_per_channel=0.5,
-                    order_downsample=0,
-                    order_upsample=3,
-                    p_per_sample=0.25,
-                    ignore_axes=None,
-                    data_key="image",
-                ),
-                {"image": "image", "label": "label"},
-            ),
-            adaptor(
-                GammaTransform(
-                    (0.7, 1.5),
-                    True,
-                    True,
-                    retain_stats=True,
-                    p_per_sample=0.1,
-                    data_key="image",
-                ),
-                {"image": "image", "label": "label"},
-            ),
-            adaptor(
-                MirrorTransform((0, 1, 2), data_key="image", label_key=("label")),
-                {"image": "image", "label": "label"},
-            ),
-            SqueezeDimd(keys=["image", "label"], dim=0),
+            RandZoomd(["image", "label", "skeleton"], prob=prob, min_zoom=0.7, max_zoom=1.4),
+            RandGaussianNoised(keys=["image"], prob=prob),
+            RandGaussianSmoothd(keys=["image"], prob=prob),
+            RandScaleIntensityd(keys=["image"], factors=0.3, prob=prob),
+            RandAxisFlipd(["image", "label", "skeleton"], prob=prob),
+            RandAdjustContrastd(keys=["image"], prob=prob),
         ]
     )
     train_dataset = ImageCasDataset(
@@ -177,6 +100,8 @@ def prepare_train():
         mode="train",
         transform=train_transform,
         cache_rate=0.0,
+        use_mask=True,
+        use_skeleton=True,
     )
     train_dataloader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
@@ -186,18 +111,26 @@ def prepare_train():
         mode="validation",
         transform=eval_transform,
         cache_rate=0.0,
+        use_mask=True,
+        use_skeleton=True,
     )
     val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1)
 
-    model = UNet(
+    model = SkelUNet(
         spatial_dims=3,
         in_channels=1,
         out_channels=1,
         channels=(16, 32, 64, 128, 256),
         strides=(2, 2, 2, 2),
         num_res_units=2,
+        pred_mask=True,
     )
-    loss_function = DiceLoss(sigmoid=True)
+    cldice_loss = clDiceLoss()
+    dice_loss = DiceLoss(sigmoid=True)
+    alpha = 0.3
+    loss_function = lambda y_pred, y: (1 - alpha) * dice_loss(
+        y_pred[0], y[0]
+    ) + alpha * cldice_loss(y_pred, y)
     optimizer = torch.optim.Adam(model.parameters(), 1e-2, weight_decay=3e-5)
     lr_scheduler = LrScheduleHandler(
         torch.optim.lr_scheduler.LambdaLR(
@@ -238,7 +171,7 @@ def prepare_train():
     trainer_kwargs = dict(
         prepare_batch=lambda batch, device, non_blocking: (
             batch["image"].to(device),
-            batch["label"].to(device),
+            (batch["label"].to(device), batch["skeleton"].to(device)),
         ),
     )
     trainer_handlers = [lr_scheduler, train_stats_handler, train_mlflow_handler]
@@ -264,6 +197,8 @@ def prepare_test():
         mode="test",
         transform=eval_transform,
         cache_rate=0.0,
+        use_mask=False,
+        use_skeleton=True,
     )
     test_dataloader = DataLoader(
         test_dataset, batch_size=1, shuffle=False, num_workers=1

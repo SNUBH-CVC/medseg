@@ -1,9 +1,11 @@
+# https://github.com/martinmenten/skeletonization-for-gradient-based-optimization
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
-class Skeletonize(torch.nn.Module):
+class SkeletonizeLayer(torch.nn.Module):
     """
     Class based on PyTorch's Module class to skeletonize two- or three-dimensional input images
     while being fully compatible with PyTorch's autograd automatic differention engine as proposed in [1].
@@ -36,7 +38,7 @@ class Skeletonize(torch.nn.Module):
         simple_point_detection="Boolean",
         num_iter=5,
     ):
-        super(Skeletonize, self).__init__()
+        super(SkeletonizeLayer, self).__init__()
 
         self.probabilistic = probabilistic
         self.tau = tau
