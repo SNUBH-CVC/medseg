@@ -2,52 +2,31 @@ import os
 from datetime import datetime
 
 import torch
-from monai.data import DataLoader
-from monai.handlers import LrScheduleHandler, MeanDice, StatsHandler
+from monai.handlers import LrScheduleHandler, StatsHandler
 from monai.losses.dice import DiceLoss
 from monai.networks.nets.unet import UNet
 
-from medseg.core.utils import get_attributes_from_module
 from medseg.handlers import MedSegMLFlowHandler
 
-mlflow_tracking_uri = "file:///data/mlruns"
-cfg_path = __file__
-experiment_name = os.path.splitext(os.path.basename(cfg_path))[0]
-dataset_cfg_path = "configs/datasets/imagecas.py"
-
-dataset_attrs = get_attributes_from_module(dataset_cfg_path)
-train_dataset = dataset_attrs["train_dataset"]
-val_dataset = dataset_attrs["val_dataset"]
-test_dataset = dataset_attrs["test_dataset"]
-inferer = dataset_attrs["inferer"]
-eval_post_pred_transforms = dataset_attrs["eval_post_pred_transforms"]
-eval_post_label_transforms = dataset_attrs["eval_post_label_transforms"]
-
-key_metric_name = "mean_dice"
-metrics = {key_metric_name: MeanDice()}
-evaluator_kwargs = dict(
-    metrics=metrics,
-    prepare_batch=lambda batch, device, non_blocking: (
-        batch["image"].to(device),
-        batch["label"].to(device),
-    ),
-    output_transform=lambda x, y, y_pred: (
-        [eval_post_pred_transforms(i) for i in y_pred],
-        [eval_post_label_transforms(i) for i in y],
-    ),
-    model_fn=lambda model, x: inferer(x, model),
-)
+dataset_cfg_path = "configs/base/datasets/imagecas.py"
 
 
-def prepare_train():
-    num_workers = 4
-    batch_size = 1
+def prepare_train(
+    train_dataloader,
+    val_dataloader,
+    eval_post_pred_transforms,
+    eval_post_label_transforms,
+    inferer,
+    metrics,
+    key_metric_name,
+    mlflow_tracking_uri=None,
+    *args,
+    **kwargs
+):
     max_epochs = 400
-
-    train_dataloader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
-    )
-    val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1)
+    cfg_path = __file__
+    experiment_name = os.path.splitext(os.path.basename(cfg_path))[0]
+    run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     model = UNet(
         spatial_dims=3,
@@ -65,7 +44,6 @@ def prepare_train():
         )
     )
 
-    run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
     train_mlflow_handler = MedSegMLFlowHandler(
         mlflow_tracking_uri,
         output_transform=lambda x: x,
@@ -101,6 +79,18 @@ def prepare_train():
             batch["label"].to(device),
         ),
     )
+    evaluator_kwargs = dict(
+        metrics=metrics,
+        prepare_batch=lambda batch, device, non_blocking: (
+            batch["image"].to(device),
+            batch["label"].to(device),
+        ),
+        output_transform=lambda x, y, y_pred: (
+            [eval_post_pred_transforms(i) for i in y_pred],
+            [eval_post_label_transforms(i) for i in y],
+        ),
+        model_fn=lambda model, x: inferer(x, model),
+    )
     trainer_handlers = [lr_scheduler, train_stats_handler, train_mlflow_handler]
     evaluator_handlers = [val_stats_handler, val_mlflow_handler]
 
@@ -118,11 +108,28 @@ def prepare_train():
     )
 
 
-def prepare_test():
-    test_dataloader = DataLoader(
-        test_dataset, batch_size=1, shuffle=False, num_workers=1
-    )
+def prepare_test(
+    test_dataloader,
+    eval_post_pred_transforms,
+    eval_post_label_transforms,
+    inferer,
+    metrics,
+    *args,
+    **kwargs
+):
     evaluation_handlers = []
+    evaluator_kwargs = dict(
+        metrics=metrics,
+        prepare_batch=lambda batch, device, non_blocking: (
+            batch["image"].to(device),
+            batch["label"].to(device),
+        ),
+        output_transform=lambda x, y, y_pred: (
+            [eval_post_pred_transforms(i) for i in y_pred],
+            [eval_post_label_transforms(i) for i in y],
+        ),
+        model_fn=lambda model, x: inferer(x, model),
+    )
 
     return dict(
         dataloader=test_dataloader,

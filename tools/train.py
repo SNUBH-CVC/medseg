@@ -12,7 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ignite.engine import (Events, create_supervised_evaluator,
                            create_supervised_trainer)
 
-from medseg.core.utils import import_attribute
+from medseg.core.config import Config
 
 
 def parse_args():
@@ -26,24 +26,23 @@ def parse_args():
 def main():
     logger = logging.getLogger(__name__)
     args = parse_args()
-    prepare_train_func = import_attribute(args.cfg_path, "prepare_train")
-    items = prepare_train_func()
+    cfg = Config.from_file(args.cfg_path)
 
     device = args.device
-    model = items["model"]
-    optimizer = items["optimizer"]
+    model = cfg["model"]
+    optimizer = cfg["optimizer"]
     if args.multi_gpu and torch.cuda.device_count() > 1:
         logger.info(f"Using {torch.cuda.device_count()} GPUs!")
         model = nn.DataParallel(model)
     model = model.to(device)
-    max_epochs = items["max_epochs"]
-    train_dataloader = items["train_dataloader"]
-    val_dataloader = items["val_dataloader"]
-    loss_function = items["loss_function"]
-    trainer_kwargs = items["trainer_kwargs"]
-    evaluator_kwargs = items["evaluator_kwargs"]
-    trainer_handlers = items["trainer_handlers"]
-    evaluator_handlers = items["evaluator_handlers"]
+    max_epochs = cfg["max_epochs"]
+    train_dataloader = cfg["train_dataloader"]
+    val_dataloader = cfg["val_dataloader"]
+    loss_function = cfg["loss_function"]
+    trainer_kwargs = cfg["trainer_kwargs"]
+    evaluator_kwargs = cfg["evaluator_kwargs"]
+    trainer_handlers = cfg["trainer_handlers"]
+    evaluator_handlers = cfg["evaluator_handlers"]
 
     trainer = create_supervised_trainer(
         model, optimizer, loss_function, device=device, **trainer_kwargs

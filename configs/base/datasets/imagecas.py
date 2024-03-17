@@ -8,6 +8,8 @@ from batchgenerators.transforms.resample_transforms import \
     SimulateLowResolutionTransform
 from batchgenerators.transforms.spatial_transforms import (MirrorTransform,
                                                            SpatialTransform)
+from monai.data import DataLoader
+from monai.handlers import MeanDice
 from monai.inferers import SlidingWindowInferer
 from monai.transforms import (Activations, AsDiscrete, Compose,
                               EnsureChannelFirstd, EnsureTyped, LoadImaged,
@@ -20,7 +22,9 @@ from monai.transforms import (Activations, AsDiscrete, Compose,
 from medseg.datasets import ImageCasDataset
 
 dataset_dir = "/data/imagecas"
-roi_size = (256, 256, 128)
+num_workers = 4
+batch_size = 1
+roi_size = (128, 128, 128)
 pixdim = [0.35, 0.35, 0.5]  # median
 range_rotation = (-15.0 / 360 * 2 * np.pi, 15.0 / 360 * 2 * np.pi)
 prob = 0.2
@@ -28,27 +32,29 @@ train_transform = Compose(
     [
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
+        Spacingd(keys=["image", "label"], pixdim=pixdim),
         # https://github.com/BubblyYi/Coronary-Artery-Tracking-via-3D-CNN-Classification/blob/master/ostiapoints_train_tools/ostia_net_data_provider_aug.py
         ScaleIntensityRangePercentilesd(
             keys=["image"], lower=0.05, upper=0.95, b_min=-4000, b_max=4000
         ),
-        Spacingd(keys=["image", "label"], pixdim=pixdim),
         NormalizeIntensityd(keys=["image"]),
-        RandRotated(
-            ["image", "label"],
-            prob=prob,
-            range_x=range_rotation,
-            range_y=range_rotation,
-            range_z=range_rotation,
-        ),
-        RandZoomd(["image", "label"], prob=prob, min_zoom=0.7, max_zoom=1.4),
-        RandGaussianNoised(keys=["image"], prob=prob),
-        RandGaussianSmoothd(keys=["image"], prob=prob),
-        RandScaleIntensityd(keys=["image"], factors=0.3, prob=prob),
-        RandAxisFlipd(["image", "label"], prob=prob),
-        RandAdjustContrastd(keys=["image"], prob=prob),
+        EnsureTyped(keys=["image", "label"]),
         RandSpatialCropd(keys=["image", "label"], roi_size=roi_size),
-        EnsureChannelFirstd(keys=["image", "label"], channel_dim="no_channel"),
+        # RandRotated(
+        #     ["image", "label"],
+        #     prob=prob,
+        #     range_x=range_rotation,
+        #     range_y=range_rotation,
+        #     range_z=range_rotation,
+        # ),
+        # RandZoomd(["image", "label"], prob=prob, min_zoom=0.7, max_zoom=1.4),
+        # RandGaussianNoised(keys=["image"], prob=prob),
+        # RandGaussianSmoothd(keys=["image"], prob=prob),
+        # RandScaleIntensityd(keys=["image"], factors=0.3, prob=prob),
+        # RandAxisFlipd(["image", "label"], prob=prob),
+        # RandAdjustContrastd(keys=["image"], prob=prob),
+        # RandSpatialCropd(keys=["image", "label"], roi_size=roi_size),
+        # EnsureChannelFirstd(keys=["image", "label"], channel_dim="no_channel"),
         # EnsureTyped(keys=["image", "label"], data_type="numpy"),
         # https://github.com/PierreRouge/Cascaded-U-Net-for-vessel-segmentation
         # adaptor(
@@ -142,16 +148,18 @@ train_dataset = ImageCasDataset(
     transform=train_transform,
     cache_rate=0.0,
 )
-
+train_dataloader = DataLoader(
+    train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+)
 eval_transform = Compose(
     [
         LoadImaged(keys=["image", "label"]),
         EnsureChannelFirstd(keys=["image", "label"]),
+        Spacingd(keys=["image", "label"], pixdim=pixdim),
         ScaleIntensityRangePercentilesd(
             keys=["image"], lower=0.05, upper=0.95, b_min=-4000, b_max=4000
         ),
         NormalizeIntensityd(keys=["image"]),
-        Spacingd(keys=["image", "label"], pixdim=pixdim),
         EnsureTyped(keys=["image", "label"]),
     ]
 )
@@ -166,6 +174,7 @@ val_dataset = ImageCasDataset(
     transform=eval_transform,
     cache_rate=0.0,
 )
+val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1)
 
 test_dataset = ImageCasDataset(
     dataset_dir=dataset_dir,
@@ -173,5 +182,8 @@ test_dataset = ImageCasDataset(
     transform=eval_transform,
     cache_rate=0.0,
 )
+test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=1)
 
 inferer = SlidingWindowInferer(roi_size=roi_size, sw_batch_size=4, overlap=0.25)
+key_metric_name = "mean_dice"
+metrics = {key_metric_name: MeanDice()}
