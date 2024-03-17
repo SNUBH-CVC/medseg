@@ -4,48 +4,30 @@ from datetime import datetime
 import torch
 from monai.data import DataLoader
 from monai.handlers import LrScheduleHandler, MeanDice, StatsHandler
-from monai.inferers import SlidingWindowInferer
 from monai.losses.dice import DiceLoss
-from monai.transforms import (Activations, AsDiscrete, Compose,
-                              EnsureChannelFirstd, EnsureTyped, LoadImaged,
-                              NormalizeIntensityd, RandAdjustContrastd,
-                              RandAxisFlipd, RandGaussianNoised,
-                              RandGaussianSmoothd, RandRotated,
-                              RandScaleIntensityd, RandSpatialCropd, RandZoomd,
-                              ScaleIntensityRangePercentilesd, Spacingd)
 
-from medseg.dataset import ImageCasDataset
+from medseg.core.utils import get_attributes_from_module
 from medseg.handlers import MedSegMLFlowHandler
 from medseg.losses import clDiceLoss
 from medseg.models import SkelUNet
 
 mlflow_tracking_uri = "file:///data/mlruns"
-dataset_dir = "/data/imagecas"
-roi_size = (128, 128, 64)
 cfg_path = __file__
 experiment_name = os.path.splitext(os.path.basename(cfg_path))[0]
+dataset_cfg_path = "configs/datasets/imagecas.py"
+
+dataset_attrs = get_attributes_from_module(dataset_cfg_path)
+train_dataset = dataset_attrs["train_dataset"]
+val_dataset = dataset_attrs["val_dataset"]
+test_dataset = dataset_attrs["test_dataset"]
+inferer = dataset_attrs["inferer"]
+eval_post_pred_transforms = dataset_attrs["eval_post_pred_transforms"]
+eval_post_label_transforms = dataset_attrs["eval_post_label_transforms"]
 
 pixdim = [0.35, 0.35, 0.5]  # median
-eval_transform = Compose(
-    [
-        LoadImaged(keys=["image", "label", "skeleton"]),
-        EnsureChannelFirstd(keys=["image", "label", "skeleton"]),
-        ScaleIntensityRangePercentilesd(
-            keys=["image"], lower=0.05, upper=0.95, b_min=-4000, b_max=4000
-        ),
-        Spacingd(keys=["image", "label", "skeleton"], pixdim=pixdim),
-        NormalizeIntensityd(keys=["image"]),
-        EnsureTyped(keys=["image", "label", "skeleton"]),
-    ]
-)
-eval_post_pred_transforms = Compose(
-    [Activations(sigmoid=True), AsDiscrete(threshold=0.5)]
-)
 
 key_metric_name = "mean_dice"
 metrics = {key_metric_name: MeanDice()}
-eval_post_label_transforms = Compose([AsDiscrete(threshold=0.5)])
-inferer = SlidingWindowInferer(roi_size=roi_size, sw_batch_size=4, overlap=0.25)
 evaluator_kwargs = dict(
     metrics=metrics,
     prepare_batch=lambda batch, device, non_blocking: (
@@ -65,54 +47,8 @@ def prepare_train():
     batch_size = 2
     max_epochs = 400
 
-    range_rotation = (-0.523, 0.523)
-    prob = 0.2
-    train_transform = Compose(
-        [
-            LoadImaged(keys=["image", "label", "skeleton"]),
-            EnsureChannelFirstd(keys=["image", "label", "skeleton"]),
-            # https://github.com/BubblyYi/Coronary-Artery-Tracking-via-3D-CNN-Classification/blob/master/ostiapoints_train_tools/ostia_net_data_provider_aug.py
-            ScaleIntensityRangePercentilesd(
-                keys=["image"], lower=0.05, upper=0.95, b_min=-4000, b_max=4000
-            ),
-            Spacingd(keys=["image", "label", "skeleton"], pixdim=pixdim),
-            NormalizeIntensityd(keys=["image"]),
-            EnsureTyped(keys=["image", "label", "skeleton"]),
-            RandSpatialCropd(keys=["image", "label", "skeleton"], roi_size=roi_size),
-            # https://github.com/PierreRouge/Cascaded-U-Net-for-vessel-segmentation
-            RandRotated(
-                ["image", "label", "skeleton"],
-                prob=prob,
-                range_x=range_rotation,
-                range_y=range_rotation,
-                range_z=range_rotation,
-            ),
-            RandZoomd(["image", "label", "skeleton"], prob=prob, min_zoom=0.7, max_zoom=1.4),
-            RandGaussianNoised(keys=["image"], prob=prob),
-            RandGaussianSmoothd(keys=["image"], prob=prob),
-            RandScaleIntensityd(keys=["image"], factors=0.3, prob=prob),
-            RandAxisFlipd(["image", "label", "skeleton"], prob=prob),
-            RandAdjustContrastd(keys=["image"], prob=prob),
-        ]
-    )
-    train_dataset = ImageCasDataset(
-        dataset_dir=dataset_dir,
-        mode="train",
-        transform=train_transform,
-        cache_rate=0.0,
-        use_mask=True,
-        use_skeleton=True,
-    )
     train_dataloader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
-    )
-    val_dataset = ImageCasDataset(
-        dataset_dir=dataset_dir,
-        mode="validation",
-        transform=eval_transform,
-        cache_rate=0.0,
-        use_mask=True,
-        use_skeleton=True,
     )
     val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1)
 
@@ -192,14 +128,6 @@ def prepare_train():
 
 
 def prepare_test():
-    test_dataset = ImageCasDataset(
-        dataset_dir=dataset_dir,
-        mode="test",
-        transform=eval_transform,
-        cache_rate=0.0,
-        use_mask=False,
-        use_skeleton=True,
-    )
     test_dataloader = DataLoader(
         test_dataset, batch_size=1, shuffle=False, num_workers=1
     )

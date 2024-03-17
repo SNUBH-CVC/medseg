@@ -14,8 +14,8 @@ from monai.transforms import (Activations, AsDiscrete, Compose,
                               RandSpatialCropd,
                               ScaleIntensityRangePercentilesd)
 
-from medseg.dataset import ImageCasDataset
-from medseg.handler import MedSegMLFlowHandler
+from medseg.datasets import ImageCasDataset
+from medseg.handlers import MedSegMLFlowHandler
 
 mlflow_tracking_uri = "file:///data/mlruns"
 dataset_dir = "/data/imagecas"
@@ -87,7 +87,7 @@ def prepare_train():
     )
     train_dataset = ImageCasDataset(
         dataset_dir=dataset_dir,
-        section="training",
+        mode="train",
         transform=train_transform,
         cache_rate=0.0,
     )
@@ -96,7 +96,7 @@ def prepare_train():
     )
     val_dataset = ImageCasDataset(
         dataset_dir=dataset_dir,
-        section="validation",
+        mode="validation",
         transform=eval_transform,
         cache_rate=0.0,
     )
@@ -187,7 +187,7 @@ def prepare_train():
 def prepare_test():
     test_dataset = ImageCasDataset(
         dataset_dir=dataset_dir,
-        section="test",
+        mode="test",
         transform=eval_transform,
         cache_rate=0.0,
     )

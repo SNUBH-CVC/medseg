@@ -5,14 +5,13 @@ import torch
 from monai.data import DataLoader
 from monai.handlers import LrScheduleHandler, MeanDice, StatsHandler
 from monai.losses.dice import DiceLoss
-from monai.networks.nets.unet import UNet
 
 from medseg.core.utils import get_attributes_from_module
 from medseg.handlers import MedSegMLFlowHandler
+from medseg.models import SlimUNETR
 
 mlflow_tracking_uri = "file:///data/mlruns"
 cfg_path = __file__
-experiment_name = os.path.splitext(os.path.basename(cfg_path))[0]
 dataset_cfg_path = "configs/datasets/imagecas.py"
 
 dataset_attrs = get_attributes_from_module(dataset_cfg_path)
@@ -22,6 +21,7 @@ test_dataset = dataset_attrs["test_dataset"]
 inferer = dataset_attrs["inferer"]
 eval_post_pred_transforms = dataset_attrs["eval_post_pred_transforms"]
 eval_post_label_transforms = dataset_attrs["eval_post_label_transforms"]
+experiment_name = os.path.splitext(os.path.basename(cfg_path))[0]
 
 key_metric_name = "mean_dice"
 metrics = {key_metric_name: MeanDice()}
@@ -40,25 +40,28 @@ evaluator_kwargs = dict(
 
 
 def prepare_train():
-    num_workers = 4
-    batch_size = 1
-    max_epochs = 400
+    num_workers = 8
+    batch_size = 32
+    max_epochs = 500
 
     train_dataloader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
     )
     val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1)
 
-    model = UNet(
-        spatial_dims=3,
+    model = SlimUNETR(
         in_channels=1,
         out_channels=1,
-        channels=(16, 32, 64, 128, 256),
-        strides=(2, 2, 2, 2),
-        num_res_units=2,
+        embed_dim=96,
+        embedding_dim=144,
+        channels=(24, 48, 60),
+        blocks=(1, 2, 3, 2),
+        heads=(1, 2, 4, 4),
+        r=(4, 2, 2, 1),
+        dropout=0.3,
     )
     loss_function = DiceLoss(sigmoid=True)
-    optimizer = torch.optim.Adam(model.parameters(), 1e-2, weight_decay=3e-5)
+    optimizer = torch.optim.Adam(model.parameters(), 1e-3, weight_decay=3e-5)
     lr_scheduler = LrScheduleHandler(
         torch.optim.lr_scheduler.LambdaLR(
             optimizer, lr_lambda=lambda epoch: (1 - epoch / max_epochs) ** 0.9
@@ -71,7 +74,7 @@ def prepare_train():
         output_transform=lambda x: x,
         experiment_name=experiment_name,
         run_name=run_name,
-        artifacts_at_start={cfg_path: "config", dataset_cfg_path: "config"},
+        artifacts_at_start={cfg_path: "config"},
         optimizer=optimizer,
     )
     val_mlflow_handler = lambda trainer: MedSegMLFlowHandler(

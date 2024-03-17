@@ -4,43 +4,28 @@ from datetime import datetime
 import torch
 from monai.data import DataLoader
 from monai.handlers import MeanDice, StatsHandler
-from monai.inferers import SlidingWindowInferer
 from monai.losses.dice import DiceLoss
 from monai.networks.nets.swin_unetr import SwinUNETR
-from monai.transforms import (Activations, AsDiscrete, Compose,
-                              EnsureChannelFirstd, EnsureTyped, LoadImaged,
-                              NormalizeIntensityd, RandCropByPosNegLabeld,
-                              RandScaleIntensityd, RandShiftIntensityd,
-                              ScaleIntensityRangePercentilesd)
 
-from medseg.dataset import ImageCasDataset
-from medseg.handler import MedSegMLFlowHandler
+from medseg.core.utils import get_attributes_from_module
+from medseg.handlers import MedSegMLFlowHandler
 
 mlflow_tracking_uri = "file:///data/mlruns"
-dataset_dir = "/data/imagecas"
-roi_size = (128, 128, 64)
 cfg_path = __file__
 experiment_name = os.path.splitext(os.path.basename(cfg_path))[0]
+dataset_cfg_path = "configs/datasets/imagecas.py"
 
-eval_transform = Compose(
-    [
-        LoadImaged(keys=["image", "label"]),
-        EnsureChannelFirstd(keys=["image", "label"]),
-        ScaleIntensityRangePercentilesd(
-            keys=["image"], lower=0.05, upper=0.95, b_min=-4000, b_max=4000
-        ),
-        NormalizeIntensityd(keys=["image"]),
-        EnsureTyped(keys=["image", "label"]),
-    ]
-)
-eval_post_pred_transforms = Compose(
-    [Activations(sigmoid=True), AsDiscrete(threshold=0.5)]
-)
+dataset_attrs = get_attributes_from_module(dataset_cfg_path)
+train_dataset = dataset_attrs["train_dataset"]
+val_dataset = dataset_attrs["val_dataset"]
+test_dataset = dataset_attrs["test_dataset"]
+inferer = dataset_attrs["inferer"]
+eval_post_pred_transforms = dataset_attrs["eval_post_pred_transforms"]
+eval_post_label_transforms = dataset_attrs["eval_post_label_transforms"]
+roi_size = dataset_attrs["roi_size"]
 
 key_metric_name = "mean_dice"
 metrics = {key_metric_name: MeanDice()}
-eval_post_label_transforms = Compose([AsDiscrete(threshold=0.5)])
-inferer = SlidingWindowInferer(roi_size=roi_size, sw_batch_size=4, overlap=0.25)
 evaluator_kwargs = dict(
     metrics=metrics,
     prepare_batch=lambda batch, device, non_blocking: (
@@ -57,46 +42,11 @@ evaluator_kwargs = dict(
 
 def prepare_train():
     num_workers = 4
-    batch_size = 4
+    batch_size = 2
     max_epochs = 500
 
-    train_transform = Compose(
-        [
-            LoadImaged(keys=["image", "label"]),
-            EnsureChannelFirstd(keys=["image", "label"]),
-            # https://github.com/BubblyYi/Coronary-Artery-Tracking-via-3D-CNN-Classification/blob/master/ostiapoints_train_tools/ostia_net_data_provider_aug.py
-            ScaleIntensityRangePercentilesd(
-                keys=["image"], lower=0.05, upper=0.95, b_min=-4000, b_max=4000
-            ),
-            NormalizeIntensityd(keys=["image"]),
-            # RandScaleIntensityd(keys=["image"], factors=0.1, prob=1.0),
-            # RandShiftIntensityd(keys=["image"], offsets=0.1, prob=1.0),
-            EnsureTyped(keys=["image", "label"]),
-            RandCropByPosNegLabeld(
-                keys=["image", "label"],
-                label_key="label",
-                spatial_size=roi_size,
-                pos=1,
-                neg=1,
-                num_samples=4,
-                image_key="image",
-            ),
-        ]
-    )
-    train_dataset = ImageCasDataset(
-        dataset_dir=dataset_dir,
-        section="training",
-        transform=train_transform,
-        cache_rate=0.0,
-    )
     train_dataloader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
-    )
-    val_dataset = ImageCasDataset(
-        dataset_dir=dataset_dir,
-        section="validation",
-        transform=eval_transform,
-        cache_rate=0.0,
     )
     val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1)
 
@@ -166,12 +116,6 @@ def prepare_train():
 
 
 def prepare_test():
-    test_dataset = ImageCasDataset(
-        dataset_dir=dataset_dir,
-        section="test",
-        transform=eval_transform,
-        cache_rate=0.0,
-    )
     test_dataloader = DataLoader(
         test_dataset, batch_size=1, shuffle=False, num_workers=1
     )

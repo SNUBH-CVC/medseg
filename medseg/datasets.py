@@ -8,8 +8,7 @@ from monai.transforms import Randomizable
 
 # https://github.com/Project-MONAI/tutorials/blob/main/modules/public_datasets.ipynb
 class ImageCasDataset(Randomizable, CacheDataset):
-    resource = None
-    md5 = None
+    num_classes = 1
 
     def __init__(
         self,
@@ -38,7 +37,7 @@ class ImageCasDataset(Randomizable, CacheDataset):
             raise ValueError("Download the dataset manually.")
 
         assert use_mask or use_skeleton
-        data = []
+        self.data_list = []
         for _id, _section in split_d:
             if _section == mode:
                 d = {
@@ -60,10 +59,10 @@ class ImageCasDataset(Randomizable, CacheDataset):
                             )
                         }
                     )
-                data.append(d)
+                self.data_list.append(d)
 
         super().__init__(
-            data,
+            self.data_list,
             transform,
             cache_num=cache_num,
             cache_rate=cache_rate,
