@@ -1,13 +1,10 @@
 import argparse
 import multiprocessing
 import os
-import sys
 
 import nibabel as nib
 import numpy as np
 from monai.data import DataLoader
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from medseg.core.utils import get_attributes_from_module, setup_logger
 

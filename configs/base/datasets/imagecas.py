@@ -23,8 +23,8 @@ from medseg.datasets import ImageCasDataset
 
 dataset_dir = "/data/imagecas"
 num_workers = 4
-batch_size = 1
-roi_size = (128, 128, 128)
+batch_size = 4
+roi_size = (196, 196, 128)
 pixdim = [0.35, 0.35, 0.5]  # median
 range_rotation = (-15.0 / 360 * 2 * np.pi, 15.0 / 360 * 2 * np.pi)
 prob = 0.2

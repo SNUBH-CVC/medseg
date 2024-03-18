@@ -1,14 +1,9 @@
 import argparse
 import logging
-import os
-import sys
 import types
 
 import torch
 import torch.nn as nn
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from ignite.engine import (Events, create_supervised_evaluator,
                            create_supervised_trainer)
 
