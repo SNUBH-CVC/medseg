@@ -5,55 +5,69 @@ import sys
 from monai.data import CacheDataset
 from monai.transforms import Randomizable
 
+from .utils import PanopticCOCO
+
 
 # https://github.com/Project-MONAI/tutorials/blob/main/modules/public_datasets.ipynb
 class ImageCasDataset(Randomizable, CacheDataset):
     dataset_name = "imagecas"
-    num_classes = 1
 
     def __init__(
         self,
         dataset_dir,
-        splits_path,
+        annotation_filename,
+        img_dirname,
         mode,
-        transform,
+        transform=None,
         download=False,
         cache_num=sys.maxsize,
-        cache_rate=1.0,
+        cache_rate=0.0,
         num_workers=0,
-        use_mask=True,
-        use_skeleton=False,
+        mask_dirname=None,
+        skeleton_dirname=None,
+        splits_path=None,
         k=1,
     ):
-        if not os.path.isdir(dataset_dir):
-            raise ValueError("Root directory root_dir must be a directory.")
+        self.coco = PanopticCOCO(os.path.join(dataset_dir, annotation_filename))
         self.mode = mode
         assert 1 <= k <= 4
         if download:
             raise ValueError("Download the dataset manually.")
 
+        img_dir = os.path.join(dataset_dir, img_dirname)
+        use_mask = mask_dirname is not None
+        use_skeleton = skeleton_dirname is not None
         assert use_mask or use_skeleton
-        self.data_list = []
-        with open(splits_path, "r") as f:
-            split_d = json.load(splits_path)
-        assert len(split_d) == 5
+        if use_mask:
+            mask_dir = os.path.join(dataset_dir, mask_dirname)
+        if use_skeleton:
+            skeleton_dir = os.path.join(dataset_dir, skeleton_dirname)
 
-        for _id, _section in split_d[k]:
-            if _section == mode:
-                d = {
-                    "image": os.path.join(dataset_dir, "images", f"{_id}.npy"),
-                }
-                if use_mask:
-                    d.update({"mask": os.path.join(dataset_dir, "masks", f"{_id}.npy")})
-                if use_skeleton:
-                    d.update(
-                        {
-                            "skeleton": os.path.join(
-                                dataset_dir, "skeletons", f"{_id}.npy"
-                            )
-                        }
-                    )
-                self.data_list.append(d)
+        self.data_list = []
+        if splits_path is not None:
+            with open(splits_path, "r") as f:
+                split_d = json.load(splits_path)
+            assert len(split_d) == 5
+            img_ids = split_d[k][mode]
+        else:
+            img_ids = self.coco.getImgIds()
+
+        for _id in img_ids:
+            img_info = self.coco.loadImgs(_id)[0]
+            ann_info = self.coco.loadAnns(_id)[0]
+
+            d = {
+                "id": _id,
+                "image": os.path.join(img_dir, img_info["file_name"]),
+            }
+            if use_mask:
+                d.update({"mask": os.path.join(mask_dir, ann_info["file_name"])})
+            if use_skeleton:
+                skeleton_info = ann_info["skeleton_info"]
+                d.update(
+                    {"skeleton": os.path.join(skeleton_dir, skeleton_info["file_name"])}
+                )
+            self.data_list.append(d)
 
         super().__init__(
             self.data_list,
@@ -62,3 +76,7 @@ class ImageCasDataset(Randomizable, CacheDataset):
             cache_rate=cache_rate,
             num_workers=num_workers,
         )
+
+    @property
+    def num_classes(self):
+        return len(self.coco.cats)
