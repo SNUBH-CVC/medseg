@@ -71,3 +71,11 @@ def setup_logger(log_path=None):
         logger.addHandler(file_handler)
 
     return logger
+
+
+def lambda_lr(max_epochs):
+    return lambda epoch: (1 - epoch / max_epochs) ** 0.9
+
+
+def lambda_prepare_batch(keys):
+    return lambda batch, device, non_blocking: (batch[k].to(device) for k in keys)

@@ -1,0 +1,85 @@
+dataset_dir: /mnt/8TB/public/imagecas
+
+train_dataloader:
+  _target_: monai.data.DataLoader
+  batch_size: 1
+  dataset:
+    _target_: medseg.datasets.imagecas.ImageCasDataset
+    dataset_dir: ${...dataset_dir}
+    annotation_filename: "train_val.json"
+    img_dirname: images
+    splits_path: null
+    mode: train_val
+    mask_dirname: masks
+    transform: 
+      _target_: monai.transforms.Compose
+      transforms:
+        - _target_: monai.transforms.LoadImaged
+          keys: ["image", "mask"]
+        - _target_: monai.transforms.EnsureChannelFirstd
+          keys: ["image", "mask"]
+        - _target_: monai.transforms.ScaleIntensityRangePercentilesd
+          keys: ["image"]
+          lower: 0.05
+          upper: 0.95 
+          b_min: -4000
+          b_max: 4000
+        - _target_: monai.transforms.NormalizeIntensityd
+          keys: ["image"]
+        - _target_: monai.transforms.EnsureTyped
+          keys: ["image", "mask"]
+        - _target_: monai.transforms.RandSpatialCropd
+          keys: ["image", "mask"]
+          roi_size: ${roi_size}
+
+val_dataloader:
+  _target_: monai.data.DataLoader
+  batch_size: 1
+  dataset:
+    _target_: medseg.datasets.imagecas.ImageCasDataset
+    dataset_dir: ${...dataset_dir}
+    annotation_filename: "train_val.json"
+    img_dirname: images
+    splits_path: null
+    mode: train_val
+    mask_dirname: masks
+    transform: 
+      _target_: monai.transforms.Compose
+      transforms:
+        - _target_: monai.transforms.LoadImaged
+          keys: ["image", "mask"]
+        - _target_: monai.transforms.EnsureChannelFirstd
+          keys: ["image", "mask"]
+        - _target_: monai.transforms.ScaleIntensityRangePercentilesd
+          keys: ["image"]
+          lower: 0.05
+          upper: 0.95 
+          b_min: -4000
+          b_max: 4000
+        - _target_: monai.transforms.NormalizeIntensityd
+          keys: ["image"]
+        - _target_: monai.transforms.EnsureTyped
+          keys: ["image", "mask"]
+
+eval_post_pred_transforms:
+  _target_: monai.transforms.Compose
+  transforms:
+    - _target_: monai.transforms.Activations
+      sigmoid: true
+    - _target_: monai.transforms.AsDiscrete
+      threshold: 0.5
+
+eval_post_label_transforms: 
+  _target_: monai.transforms.Compose
+  transforms:
+    - _target_: monai.transforms.AsDiscrete
+      threshold: 0.5
+
+inferer:
+  _target_:
+    monai.inferers.SlidingWindowInferer
+  roi_size: ${roi_size}
+
+prepare_batch:
+  _target_: medseg.core.utils.lambda_prepare_batch
+  keys: ["image", "mask"]

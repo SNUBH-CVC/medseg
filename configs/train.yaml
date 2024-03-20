@@ -1,0 +1,36 @@
+hydra:
+  output_subdir: /data/hydra/outputs/${now:%Y-%m-%d-%H-%M-%S}
+
+defaults:
+  - _self_
+  - model: unet.yaml
+  - dataset: imagecas.yaml
+
+mlflow_tracking_uri: file:///data/mlruns
+experiment_name: hydra_test
+max_epochs: 2
+num_workers: 4
+device: cuda
+multi_gpu: false
+key_metric_name: mean_dice
+roi_size: [96, 96, 96]
+
+loss: 
+  _target_: monai.losses.dice.DiceLoss
+  sigmoid: true
+
+optimizer: 
+  _target_: torch.optim.Adam
+  lr: 0.001
+  weight_decay: 0.0003
+
+lr_scheduler: 
+  _target_: torch.optim.lr_scheduler.LambdaLR
+  lr_lambda: 
+    _target_: medseg.core.utils.lambda_lr
+    max_epochs: ${max_epochs}
+
+metrics: 
+  _target_: builtins.dict
+  mean_dice:
+    _target_: monai.handlers.MeanDice
