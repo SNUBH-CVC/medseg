@@ -13,7 +13,6 @@ num_workers: 4
 device: cuda
 multi_gpu: false
 key_metric_name: mean_dice
-roi_size: [96, 96, 96]
 
 loss: 
   _target_: monai.losses.dice.DiceLoss

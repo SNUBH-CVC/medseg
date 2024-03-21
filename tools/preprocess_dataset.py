@@ -4,7 +4,8 @@ import multiprocessing
 import os
 
 import numpy as np
-from monai.transforms import Compose, EnsureTyped, LoadImaged, Spacingd
+from monai.transforms import (Compose, EnsureChannelFirstd, EnsureTyped,
+                              LoadImaged, Spacingd, SqueezeDimd)
 from sklearn.model_selection import KFold
 
 from medseg.core.utils import setup_logger
@@ -82,7 +83,7 @@ class Preprocessor:
                         counter,
                         lock,
                     )
-                    for data in self.dataset[:10]
+                    for data in self.dataset
                 ],
             )
 
@@ -132,10 +133,10 @@ class Preprocessor:
         )
         annotations.append(
             {
-                "id": _id,
-                "file_name": basename,
-                "shape": img.shape,
-                "spacing": self.target_spacing,
+                "image_id": _id,
+                "mask_info": {
+                    "file_name": basename,
+                },
             }
         )
         np.save(os.path.join(self.img_save_dir, basename), img)
@@ -152,15 +153,18 @@ def main():
         mask_dirname=args.mask_dirname,
     )
     target_spacing = np.percentile(
-        [i["spacing"] for i in dataset.coco.loadImgs(dataset.coco.getImgIds())], 50, 0
+        [dataset.coco.load_img(i)["spacing"] for i in dataset.coco.get_img_ids()], 50, 0
     )
+    logger.info(f"Adjust target_spacing: {target_spacing}.")
     transforms = Compose(
         [
             LoadImaged(keys=["image", "mask"]),
+            EnsureChannelFirstd(keys=["image", "mask"]),
             Spacingd(keys=["image", "mask"], pixdim=target_spacing),
             EnsureTyped(
                 keys=["image", "mask"], dtype=[np.float64, np.uint8], data_type="numpy"
             ),
+            SqueezeDimd(keys=["image", "mask"], dim=0),
         ]
     )
 

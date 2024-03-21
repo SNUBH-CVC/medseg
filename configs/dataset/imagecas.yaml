@@ -1,3 +1,4 @@
+roi_size: [256, 256, 128]
 dataset_dir: /mnt/8TB/public/imagecas
 
 train_dataloader:
@@ -5,7 +6,7 @@ train_dataloader:
   batch_size: 1
   dataset:
     _target_: medseg.datasets.imagecas.ImageCasDataset
-    dataset_dir: ${...dataset_dir}
+    dataset_dir: ${dataset.dataset_dir}
     annotation_filename: "train_val.json"
     img_dirname: images
     splits_path: null
@@ -30,7 +31,7 @@ train_dataloader:
           keys: ["image", "mask"]
         - _target_: monai.transforms.RandSpatialCropd
           keys: ["image", "mask"]
-          roi_size: ${roi_size}
+          roi_size: ${dataset.roi_size}
 
 val_dataloader:
   _target_: monai.data.DataLoader
@@ -78,7 +79,7 @@ eval_post_label_transforms:
 inferer:
   _target_:
     monai.inferers.SlidingWindowInferer
-  roi_size: ${roi_size}
+  roi_size: ${dataset.roi_size}
 
 prepare_batch:
   _target_: medseg.core.utils.lambda_prepare_batch

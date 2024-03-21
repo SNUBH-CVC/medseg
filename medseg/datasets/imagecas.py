@@ -48,20 +48,21 @@ class ImageCasDataset(Randomizable, CacheDataset):
             with open(splits_path, "r") as f:
                 split_d = json.load(splits_path)
             assert len(split_d) == 5
-            img_ids = split_d[k][mode]
+            self.img_ids = split_d[k][mode]
         else:
-            img_ids = self.coco.getImgIds()
+            self.img_ids = self.coco.get_img_ids()
 
-        for _id in img_ids:
-            img_info = self.coco.loadImgs(_id)[0]
-            ann_info = self.coco.loadAnns(_id)[0]
+        for _id in self.img_ids:
+            img_info = self.coco.load_img(_id)
+            ann_info = self.coco.load_ann(_id)
 
             d = {
                 "id": _id,
                 "image": os.path.join(img_dir, img_info["file_name"]),
             }
             if use_mask:
-                d.update({"mask": os.path.join(mask_dir, ann_info["file_name"])})
+                mask_info = ann_info["mask_info"]
+                d.update({"mask": os.path.join(mask_dir, mask_info["file_name"])})
             if use_skeleton:
                 skeleton_info = ann_info["skeleton_info"]
                 d.update(
@@ -76,6 +77,14 @@ class ImageCasDataset(Randomizable, CacheDataset):
             cache_rate=cache_rate,
             num_workers=num_workers,
         )
+
+    @property
+    def spacings(self):
+        return [self.coco.load_img[i]["spacing"] for i in self.img_ids]
+
+    @property
+    def shapes(self):
+        return [self.coco.load_img[i]["shape"] for i in self.img_ids]
 
     @property
     def num_classes(self):

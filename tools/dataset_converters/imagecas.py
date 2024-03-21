@@ -4,10 +4,10 @@ import multiprocessing
 import os
 from shutil import copyfile
 
+import nibabel as nib
 import pandas as pd
-import SimpleITK as sitk
 
-from medseg.core.utils import setup_logger
+from medseg.core.utils import NumpyEncoder, setup_logger
 
 logger = setup_logger()
 
@@ -35,9 +35,9 @@ def run_single(
         counter.value += 1
     logger.info(f"Running {counter.value}/{num_data}: {img_path}")
     save_basename = f"{img_id}.nii.gz"
-    img = sitk.ReadImage(img_path)
-    spacing = img.GetSpacing()
-    img_arr = sitk.GetArrayFromImage(img)
+    img = nib.load(img_path)
+    spacing = img.header.get_zooms()
+    img_arr = img.get_fdata()
     assert os.path.exists(img_path) and os.path.exists(mask_path)
 
     images.append(
@@ -50,10 +50,10 @@ def run_single(
     )
     annotations.append(
         {
-            "id": img_id,
             "image_id": img_id,
-            "file_name": save_basename,
-            "segments_info": [],  # bbox, category
+            "mask_info": {
+                "file_name": save_basename,
+            },
         }
     )
     copyfile(img_path, os.path.join(img_save_dir, save_basename))
@@ -134,7 +134,7 @@ def main():
         }
         annotation_save_path = os.path.join(output_dir, f"{mode}.json")
         with open(annotation_save_path, "w") as f:
-            json.dump(annotation_data, f)
+            json.dump(annotation_data, f, cls=NumpyEncoder)
 
 
 if __name__ == "__main__":
