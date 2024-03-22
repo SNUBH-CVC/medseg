@@ -11,6 +11,8 @@ from ignite.engine import (Events, create_supervised_evaluator,
 from monai.handlers import LrScheduleHandler
 from omegaconf import DictConfig
 
+from medseg.core.utils import set_mlflow_tracking_uri
+
 root = pyrootutils.setup_root(
     search_from=__file__,
     pythonpath=True,
@@ -107,7 +109,7 @@ def train(cfg: DictConfig):
                     )
             mlflow.log_metric(name, value=value, step=trainer.state.epoch)
 
-    mlflow.set_tracking_uri(cfg.mlflow_tracking_uri)
+    set_mlflow_tracking_uri(cfg.mlflow_tracking_uri)
     mlflow.set_experiment(cfg.experiment_name)
     with mlflow.start_run() as run:
         # log hydra output directory path to mlflow.

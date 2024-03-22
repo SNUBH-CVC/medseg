@@ -1,35 +1,9 @@
-import importlib.util
 import json
 import logging
 import os
 
 import mlflow
 import numpy as np
-
-
-def import_attribute(module_path, attribute_name):
-    # Load the module from the specified path
-    spec = importlib.util.spec_from_file_location("module", module_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    # Return the specified attribute from the module
-    return getattr(module, attribute_name)
-
-
-def get_attributes_from_module(module_path):
-    spec = importlib.util.spec_from_file_location("module", module_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    # Get all variables from the module
-    module_variables = {}
-    for attr_name in dir(module):
-        attr = getattr(module, attr_name)
-        if not attr_name.startswith("__"):
-            module_variables[attr_name] = attr
-
-    return module_variables
 
 
 def set_mlflow_tracking_uri(uri):
