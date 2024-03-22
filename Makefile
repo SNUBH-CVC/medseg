@@ -1,3 +1,3 @@
 format:
-	black medseg/ tools/ configs/
-	isort medseg/ tools/ configs/
+	black setup.py medseg/ tools/ configs/
+	isort setup.py medseg/ tools/ configs/

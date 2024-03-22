@@ -6,3 +6,7 @@ pytorch-ignite
 scikit-image
 mlflow
 einops
+
+hydra-core
+hydra-colorlog
+omegaconf
