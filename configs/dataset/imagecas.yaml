@@ -1,9 +1,9 @@
 roi_size: [256, 256, 128]
-dataset_dir: /mnt/8TB/public/imagecas
+dataset_dir: /mnt/8TB/public/raw_coco_format/imagecas
 
 train_dataloader:
   _target_: monai.data.DataLoader
-  batch_size: 1
+  batch_size: 8
   dataset:
     _target_: medseg.datasets.imagecas.ImageCasDataset
     dataset_dir: ${dataset.dataset_dir}

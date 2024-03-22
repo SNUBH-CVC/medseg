@@ -2,6 +2,7 @@ import json
 import os
 import sys
 
+import numpy as np
 from monai.data import CacheDataset
 from monai.transforms import Randomizable
 
@@ -59,6 +60,7 @@ class ImageCasDataset(Randomizable, CacheDataset):
             d = {
                 "id": _id,
                 "image": os.path.join(img_dir, img_info["file_name"]),
+                "meta": {"spacing": np.array(img_info["spacing"])},
             }
             if use_mask:
                 mask_info = ann_info["mask_info"]
