@@ -37,6 +37,7 @@ class Preprocessor:
         for tr in self.transform.transforms:
             if isinstance(tr, Spacingd):
                 self.target_spacing = tr.spacing_transform.pixdim
+                break
         else:
             self.target_spacing = None
         self.output_dir = output_dir

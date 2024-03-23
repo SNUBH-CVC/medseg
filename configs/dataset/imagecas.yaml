@@ -1,9 +1,9 @@
 roi_size: [256, 256, 128]
-dataset_dir: /mnt/8TB/public/raw_coco_format/imagecas
+dataset_dir: /data/public/processed/imagecas
 
 train_dataloader:
   _target_: monai.data.DataLoader
-  batch_size: 8
+  batch_size: 16
   dataset:
     _target_: medseg.datasets.imagecas.ImageCasDataset
     dataset_dir: ${dataset.dataset_dir}
@@ -17,6 +17,7 @@ train_dataloader:
       transforms:
         - _target_: monai.transforms.LoadImaged
           keys: ["image", "mask"]
+          reader: "NumpyReader"
         - _target_: monai.transforms.EnsureChannelFirstd
           keys: ["image", "mask"]
         - _target_: monai.transforms.ScaleIntensityRangePercentilesd
