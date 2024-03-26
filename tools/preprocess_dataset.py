@@ -8,7 +8,7 @@ from monai.transforms import (Compose, EnsureChannelFirstd, EnsureTyped,
                               LoadImaged, Spacingd, SqueezeDimd)
 from sklearn.model_selection import KFold
 
-from medseg.core.utils import setup_logger
+from medseg.core.utils import NumpyEncoder, setup_logger
 from medseg.datasets import ImageCasDataset
 
 logger = setup_logger()
@@ -95,7 +95,7 @@ class Preprocessor:
             "categories": self.dataset.coco.dataset["categories"],
         }
         with open(os.path.join(self.output_dir, "train_val.json"), "w") as f:
-            json.dump(annotation_data, f)
+            json.dump(annotation_data, f, cls=NumpyEncoder)
 
         splits = self.split()
         with open(os.path.join(self.output_dir, "splits.json"), "w") as f:

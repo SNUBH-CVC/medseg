@@ -1,5 +1,9 @@
 roi_size: [256, 256, 128]
 dataset_dir: /data/public/processed/imagecas
+splits_path: splits.json
+annotation_filename: train_val.json
+img_dirname: images
+mask_dirname: masks
 
 train_dataloader:
   _target_: monai.data.DataLoader
@@ -7,11 +11,11 @@ train_dataloader:
   dataset:
     _target_: medseg.datasets.imagecas.ImageCasDataset
     dataset_dir: ${dataset.dataset_dir}
-    annotation_filename: "train_val.json"
-    img_dirname: images
-    splits_path: null
-    mode: train_val
-    mask_dirname: masks
+    annotation_filename: ${dataset.annotation_filename}
+    img_dirname: ${dataset.img_dirname}
+    splits_path: ${dataset.splits_path}
+    mode: train
+    mask_dirname: ${dataset.mask_dirname}
     transform: 
       _target_: monai.transforms.Compose
       transforms:
@@ -40,16 +44,17 @@ val_dataloader:
   dataset:
     _target_: medseg.datasets.imagecas.ImageCasDataset
     dataset_dir: ${...dataset_dir}
-    annotation_filename: "train_val.json"
-    img_dirname: images
-    splits_path: null
-    mode: train_val
-    mask_dirname: masks
+    annotation_filename: ${dataset.annotation_filename}
+    img_dirname: ${dataset.img_dirname}
+    splits_path: ${dataset.splits_path}
+    mode: val
+    mask_dirname: ${dataset.mask_dirname}
     transform: 
       _target_: monai.transforms.Compose
       transforms:
         - _target_: monai.transforms.LoadImaged
           keys: ["image", "mask"]
+          reader: "NumpyReader"
         - _target_: monai.transforms.EnsureChannelFirstd
           keys: ["image", "mask"]
         - _target_: monai.transforms.ScaleIntensityRangePercentilesd

@@ -18,6 +18,7 @@ class ImageCasDataset(Randomizable, CacheDataset):
         dataset_dir,
         annotation_filename,
         img_dirname,
+        splits_path,
         mode,
         transform=None,
         download=False,
@@ -26,7 +27,6 @@ class ImageCasDataset(Randomizable, CacheDataset):
         num_workers=0,
         mask_dirname=None,
         skeleton_dirname=None,
-        splits_path=None,
         k=1,
     ):
         self.coco = PanopticCOCO(os.path.join(dataset_dir, annotation_filename))
@@ -45,13 +45,10 @@ class ImageCasDataset(Randomizable, CacheDataset):
             skeleton_dir = os.path.join(dataset_dir, skeleton_dirname)
 
         self.data_list = []
-        if splits_path is not None:
-            with open(splits_path, "r") as f:
-                split_d = json.load(splits_path)
-            assert len(split_d) == 5
-            self.img_ids = split_d[k][mode]
-        else:
-            self.img_ids = self.coco.get_img_ids()
+        with open(splits_path, "r") as f:
+            split_d = json.load(splits_path)
+        assert len(split_d) == 5
+        self.img_ids = split_d[k][mode]
 
         for _id in self.img_ids:
             img_info = self.coco.load_img(_id)
