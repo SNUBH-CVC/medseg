@@ -5,10 +5,9 @@ import hydra
 import mlflow
 import omegaconf
 from monai.data import DataLoader
-from monai.transforms import (Compose, EnsureChannelFirstd,
-                              EnsureTyped, LoadImaged, NormalizeIntensityd,
-                              SaveImage, ScaleIntensityRangePercentilesd,
-                              Spacingd)
+from monai.transforms import (Compose, EnsureChannelFirstd, EnsureTyped,
+                              LoadImaged, NormalizeIntensityd, SaveImage,
+                              ScaleIntensityRangePercentilesd, Spacingd)
 
 from medseg.core.utils import set_mlflow_tracking_uri
 from medseg.datasets import ImageCasDataset

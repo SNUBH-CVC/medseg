@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import warnings
 
 import numpy as np
 from monai.data import CacheDataset
@@ -46,13 +47,14 @@ class ImageCasDataset(Randomizable, CacheDataset):
 
         self.data_list = []
         if splits_path is not None:
-            assert self.mode in ["train", "val"]
-            with open(splits_path, "r") as f:
-                split_d = json.load(splits_path)
+            with open(os.path.join(dataset_dir, splits_path), "r") as f:
+                split_d = json.load(f)
             assert len(split_d) == 5
             self.img_ids = split_d[k][mode]
         else:
-            assert self.mode == "test"
+            warnings.warn(
+                "No `splits_path` has input. It could be for preprocessing or test dataset."
+            )
             self.img_ids = self.coco.get_img_ids()
 
         for _id in self.img_ids:

@@ -56,11 +56,14 @@ class Preprocessor:
     def split(self):
         kf = KFold(n_splits=self.k, random_state=self.seed, shuffle=True)
         result = []
+        img_ids = self.dataset.coco.get_img_ids()
         for train_indices, val_indices in kf.split(self.dataset):
+            train_ids = [img_ids[i] for i in train_indices]
+            val_ids = [img_ids[i] for i in val_indices]
             result.append(
                 {
-                    "train": train_indices.tolist(),
-                    "val": val_indices.tolist(),
+                    "train": train_ids,
+                    "val": val_ids,
                 }
             )
         return result

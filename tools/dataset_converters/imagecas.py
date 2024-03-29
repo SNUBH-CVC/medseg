@@ -78,10 +78,18 @@ def main():
     # test는 별도로 관리해야 맞기 때문에, cross-validation에서 제외하기.
     split_info_path = os.path.join(args.dataset_dir, "imageCAS_data_split.csv")
     split_info_fold_1 = pd.read_csv(split_info_path)[["id", "fold_1"]]
-    test_ids = split_info_fold_1[split_info_fold_1["fold_1"] == "test"]["id"].tolist()
-    train_val_ids = split_info_fold_1[
-        split_info_fold_1["fold_1"].isin(["train", "validation"])
-    ]["id"].tolist()
+    test_ids = (
+        split_info_fold_1[split_info_fold_1["fold_1"] == "test"]["id"]
+        .astype("string")
+        .tolist()
+    )
+    train_val_ids = (
+        split_info_fold_1[split_info_fold_1["fold_1"].isin(["train", "validation"])][
+            "id"
+        ]
+        .astype("string")
+        .tolist()
+    )
 
     # dataset format: https://github.com/cocodataset/panopticapi
     for mode, ids in [("train_val", train_val_ids), ("test", test_ids)]:
