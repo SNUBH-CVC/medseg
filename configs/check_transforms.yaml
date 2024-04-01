@@ -6,7 +6,6 @@ defaults:
   - dataset: imagecas.yaml
 
 num_epochs: 1
-batch_size: 4
 output_dir: outputs
 output_ext: nii.gz
 image_saver: 

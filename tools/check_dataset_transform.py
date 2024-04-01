@@ -39,10 +39,9 @@ def main(cfg: DictConfig):
     with multiprocessing.Pool(processes=num_processes) as pool:
         for epoch in range(cfg.num_epochs):
             for i, batch in enumerate(train_dataloader):
-                batch_size = len(batch)
-                logger.info(f"Running {(i + 1) * batch_size}/{num_data} items...")
                 img = batch["image"]
                 label = batch["mask"]
+                logger.info(f"Running {(i + 1) * len(img)}/{num_data} items...")
 
                 pool.starmap(
                     save_images,
@@ -50,11 +49,11 @@ def main(cfg: DictConfig):
                         (
                             i_arr[0],
                             l_arr[0],
-                            i * batch_size + j,
+                            epoch,
                             img_saver,
                             label_saver,
                         )
-                        for j, (i_arr, l_arr) in enumerate(zip(img, label))
+                        for i_arr, l_arr in zip(img, label)
                     ],
                 )
 

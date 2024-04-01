@@ -4,6 +4,8 @@ splits_path: splits.json
 annotation_filename: train_val.json
 img_dirname: images
 mask_dirname: masks
+prob: 0.2
+rotation_range: [-0.26, 0.26]
 
 train_dataloader:
   _target_: monai.data.DataLoader
@@ -30,6 +32,34 @@ train_dataloader:
           upper: 0.95 
           b_min: -4000
           b_max: 4000
+        - _target_: monai.transforms.RandRotated
+          keys: ["image", "mask"]
+          prob: ${dataset.prob}
+          range_x: ${dataset.rotation_range}
+          range_y: ${dataset.rotation_range}
+          range_z: ${dataset.rotation_range}
+          mode: ["bilinear", "nearest"]
+        - _target_: monai.transforms.RandZoomd
+          keys: ["image", "mask"]
+          prob: ${dataset.prob}
+          min_zoom: 0.8
+          max_zoom: 1.2
+        - _target_: monai.transforms.RandGaussianNoised
+          keys: ["image"]
+          prob: ${dataset.prob}
+        - _target_: monai.transforms.RandGaussianSmoothd
+          keys: ["image"]
+          prob: ${dataset.prob}
+        - _target_: monai.transforms.RandScaleIntensityd
+          keys: ["image"]
+          factors: 0.3
+          prob: ${dataset.prob}
+        - _target_: monai.transforms.RandAxisFlipd
+          keys: ["image"]
+          prob: ${dataset.prob}
+        - _target_: monai.transforms.RandAdjustContrastd
+          keys: ["image"]
+          prob: ${dataset.prob}
         - _target_: monai.transforms.NormalizeIntensityd
           keys: ["image"]
         - _target_: monai.transforms.EnsureTyped
