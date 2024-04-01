@@ -3,8 +3,6 @@ import multiprocessing
 import os
 
 import hydra
-import nibabel as nib
-import numpy as np
 import pyrootutils
 from omegaconf import DictConfig
 
@@ -22,58 +20,41 @@ HYDRA_PARAMS = {
 }
 
 
-def save_nifti_image(img_data, spacing, save_path):
-    affine = np.array(
-        [
-            [spacing[0], 0, 0, 0],
-            [0, spacing[1], 0, 0],
-            [0, 0, spacing[2], 0],
-            [0, 0, 0, 1],
-        ]
-    )
-    img_nifty = nib.Nifti1Image(img_data, affine)
-    nib.save(img_nifty, save_path)
-
-
-def transform_and_save(img, label, spacing, img_save_path, label_save_path):
-    save_nifti_image(img, spacing, img_save_path)
-    save_nifti_image(label, spacing, label_save_path)
+def save_images(img, label, idx, img_saver, label_saver):
+    img.meta["patch_index"] = idx
+    label.meta["patch_index"] = idx
+    img_saver(img)
+    label_saver(label)
 
 
 @hydra.main(**HYDRA_PARAMS)
 def main(cfg: DictConfig):
     os.makedirs(cfg.output_dir, exist_ok=True)
     num_processes = 4
-    train_dataloader = hydra.utils.instantiate(cfg.train_dataloader)
+    train_dataloader = hydra.utils.instantiate(cfg.dataset.train_dataloader)
     num_data = len(train_dataloader)
+    img_saver = hydra.utils.instantiate(cfg.image_saver)
+    label_saver = hydra.utils.instantiate(cfg.label_saver)
 
     with multiprocessing.Pool(processes=num_processes) as pool:
         for epoch in range(cfg.num_epochs):
             for i, batch in enumerate(train_dataloader):
-                logger.info(f"Running {(i + 1) * len(batch)}/{num_data} items...")
-                img_arr = batch["image"].numpy()
-                label_arr = batch["label"].numpy()
-                spacing_arr = batch["spacing"].numpy()
+                batch_size = len(batch)
+                logger.info(f"Running {(i + 1) * batch_size}/{num_data} items...")
+                img = batch["image"]
+                label = batch["mask"]
 
                 pool.starmap(
-                    transform_and_save,
+                    save_images,
                     [
                         (
-                            i_arr.squeeze(),
-                            l_arr.squeeze(),
-                            s_arr.squeeze(),
-                            os.path.join(
-                                cfg.output_dir,
-                                f"img.{epoch:02d}.{i * cfg.batch_size + j:04d}.nii.gz",
-                            ),
-                            os.path.join(
-                                cfg.output_dir,
-                                f"label.{epoch:02d}.{i * cfg.batch_size + j:04d}.nii.gz",
-                            ),
+                            i_arr[0],
+                            l_arr[0],
+                            i * batch_size + j,
+                            img_saver,
+                            label_saver,
                         )
-                        for j, (i_arr, l_arr, s_arr) in enumerate(
-                            zip(img_arr, label_arr, spacing_arr)
-                        )
+                        for j, (i_arr, l_arr) in enumerate(zip(img, label))
                     ],
                 )
 

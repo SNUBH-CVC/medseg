@@ -38,6 +38,7 @@ def run_single(
     img = nib.load(img_path)
     spacing = img.header.get_zooms()
     img_arr = img.get_fdata()
+    affine = img.affine
     assert os.path.exists(img_path) and os.path.exists(mask_path)
 
     images.append(
@@ -46,6 +47,7 @@ def run_single(
             "file_name": save_basename,
             "shape": img_arr.shape,
             "spacing": spacing,
+            "affine": affine,
         }
     )
     annotations.append(

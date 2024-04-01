@@ -7,4 +7,17 @@ defaults:
 
 num_epochs: 1
 batch_size: 4
-output_dir: "outputs"
+output_dir: outputs
+output_ext: nii.gz
+image_saver: 
+  _target_: monai.transforms.SaveImage
+  output_dir: ${output_dir}
+  output_postfix: img
+  output_ext: ${output_ext}
+  separate_folder: false
+label_saver: 
+  _target_: monai.transforms.SaveImage
+  output_dir: ${output_dir}
+  output_postfix: label
+  output_ext: ${output_ext}
+  separate_folder: false
