@@ -7,11 +7,11 @@ defaults:
   - dataset: imagecas.yaml
 
 mlflow_tracking_uri: file:///data/mlruns
-experiment_name: hydra_test
-max_epochs: 2
+experiment_name: imagecas
+max_epochs: 500
 num_workers: 4
 device: cuda
-multi_gpu: false
+multi_gpu: true
 key_metric_name: mean_dice
 
 loss: 
@@ -33,3 +33,9 @@ metrics:
   _target_: builtins.dict
   mean_dice:
     _target_: monai.handlers.MeanDice
+
+train_handlers:
+  _target_: builtins.list
+
+evaluate_handlers:
+  _target_: builtins.list

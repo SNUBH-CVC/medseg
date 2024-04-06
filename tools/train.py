@@ -71,7 +71,7 @@ def train(cfg: DictConfig):
         model, optimizer, loss_fn, device, **trainer_kwargs
     )
     for handler in trainer_handlers:
-        trainer.add_event_handler(handler)
+        handler.attach(trainer)
 
     evaluator = create_supervised_evaluator(model, metrics, device, **evaluator_kwargs)
 

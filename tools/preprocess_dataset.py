@@ -8,7 +8,7 @@ from monai.transforms import (Compose, EnsureChannelFirstd, EnsureTyped,
                               LoadImaged, Spacingd, SqueezeDimd)
 from sklearn.model_selection import KFold
 
-from medseg.core.utils import setup_logger
+from medseg.core.utils import NumpyEncoder, setup_logger
 from medseg.datasets import ImageCasDataset
 
 logger = setup_logger()
@@ -37,6 +37,7 @@ class Preprocessor:
         for tr in self.transform.transforms:
             if isinstance(tr, Spacingd):
                 self.target_spacing = tr.spacing_transform.pixdim
+                break
         else:
             self.target_spacing = None
         self.output_dir = output_dir
@@ -55,11 +56,14 @@ class Preprocessor:
     def split(self):
         kf = KFold(n_splits=self.k, random_state=self.seed, shuffle=True)
         result = []
+        img_ids = self.dataset.coco.get_img_ids()
         for train_indices, val_indices in kf.split(self.dataset):
+            train_ids = [img_ids[i] for i in train_indices]
+            val_ids = [img_ids[i] for i in val_indices]
             result.append(
                 {
-                    "train": train_indices.tolist(),
-                    "val": val_indices.tolist(),
+                    "train": train_ids,
+                    "val": val_ids,
                 }
             )
         return result
@@ -94,7 +98,7 @@ class Preprocessor:
             "categories": self.dataset.coco.dataset["categories"],
         }
         with open(os.path.join(self.output_dir, "train_val.json"), "w") as f:
-            json.dump(annotation_data, f)
+            json.dump(annotation_data, f, cls=NumpyEncoder)
 
         splits = self.split()
         with open(os.path.join(self.output_dir, "splits.json"), "w") as f:

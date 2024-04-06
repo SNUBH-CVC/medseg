@@ -3,6 +3,7 @@ jupyter
 nibabel
 wandb
 pytorch-ignite
+pyrootutils
 scikit-image
 mlflow
 einops
