@@ -30,7 +30,9 @@ HYDRA_PARAMS = {
 @hydra.main(**HYDRA_PARAMS)
 def train(cfg: DictConfig):
     device = cfg.device
-    model = hydra.utils.instantiate(cfg.model).to(device)
+    model = hydra.utils.instantiate(cfg.model.obj).to(device)
+    if cfg.model.pretrained_weight is not None:
+        model.load_from(cfg.model.pretrained_weight)
     if cfg.multi_gpu:
         assert device.startswith("cuda")
         if device == "cuda":

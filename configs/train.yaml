@@ -3,7 +3,7 @@ hydra:
 
 defaults:
   - _self_
-  - model: unet.yaml
+  - model: swin_unetr.yaml
   - dataset: imagecas.yaml
 
 mlflow_tracking_uri: file:///data/mlruns
@@ -13,6 +13,7 @@ num_workers: 4
 device: cuda
 multi_gpu: true
 key_metric_name: mean_dice
+roi_size: [192, 192, 96]
 
 loss: 
   _target_: monai.losses.dice.DiceLoss
