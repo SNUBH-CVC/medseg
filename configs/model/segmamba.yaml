@@ -1,0 +1,6 @@
+obj:
+  _target_: medseg.models.segmamba.SegMamba
+  in_chans: 1
+  out_chans: 1
+  depths: [2, 2, 2, 2]
+  feat_size: [48, 96, 192, 384]

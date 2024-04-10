@@ -31,7 +31,7 @@ HYDRA_PARAMS = {
 def train(cfg: DictConfig):
     device = cfg.device
     model = hydra.utils.instantiate(cfg.model.obj).to(device)
-    if cfg.model.pretrained_weight is not None:
+    if cfg.model.get("pretrained_weight") is not None:
         model.load_from(torch.load(cfg.model.pretrained_weight))
     if cfg.multi_gpu:
         assert device.startswith("cuda")
@@ -98,7 +98,7 @@ def train(cfg: DictConfig):
 
     best_metric = -1
 
-    @evaluator.on(Events.EPOCH_COMPLETED)
+    @evaluator.on(Events.EPOCH_COMPLETED(every=cfg.val_check_interval))
     def evaluator_epoch_completed(engine):
         nonlocal best_metric
         for name, value in engine.state.metrics.items():

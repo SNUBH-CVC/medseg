@@ -1,24 +1,20 @@
-# Copyright (c) MONAI Consortium
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#     http://www.apache.org/licenses/LICENSE-2.0
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Apr 10 15:04:06 2022
 
-from __future__ import annotations
+@author: leeh43
+"""
 
 from functools import partial
+from typing import Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from mamba_ssm import Mamba
 from monai.networks.blocks.dynunet_block import UnetOutBlock
 from monai.networks.blocks.unetr_block import UnetrBasicBlock, UnetrUpBlock
+from timm.models.layers import DropPath
 
 
 class LayerNorm(nn.Module):
@@ -47,101 +43,68 @@ class LayerNorm(nn.Module):
             u = x.mean(1, keepdim=True)
             s = (x - u).pow(2).mean(1, keepdim=True)
             x = (x - u) / torch.sqrt(s + self.eps)
+            # print(self.weight.size())
             x = self.weight[:, None, None, None] * x + self.bias[:, None, None, None]
 
             return x
 
 
-class MambaLayer(nn.Module):
-    def __init__(self, dim, d_state=16, d_conv=4, expand=2, num_slices=None):
+class ux_block(nn.Module):
+    r"""ConvNeXt Block. There are two equivalent implementations:
+    (1) DwConv -> LayerNorm (channels_first) -> 1x1 Conv -> GELU -> 1x1 Conv; all in (N, C, H, W)
+    (2) DwConv -> Permute to (N, H, W, C); LayerNorm (channels_last) -> Linear -> GELU -> Linear; Permute back
+    We use (2) as we find it slightly faster in PyTorch
+
+    Args:
+        dim (int): Number of input channels.
+        drop_path (float): Stochastic depth rate. Default: 0.0
+        layer_scale_init_value (float): Init value for Layer Scale. Default: 1e-6.
+    """
+
+    def __init__(self, dim, drop_path=0.0, layer_scale_init_value=1e-6):
         super().__init__()
-        self.dim = dim
-        self.norm = nn.LayerNorm(dim)
-        self.mamba = Mamba(
-            d_model=dim,  # Model dimension d_model
-            d_state=d_state,  # SSM state expansion factor
-            d_conv=d_conv,  # Local convolution width
-            expand=expand,  # Block expansion factor
-            bimamba_type="v3",
-            nslices=num_slices,
-        )
-
-    def forward(self, x):
-        B, C = x.shape[:2]
-        assert C == self.dim
-        n_tokens = x.shape[2:].numel()
-        img_dims = x.shape[2:]
-        x_flat = x.reshape(B, C, n_tokens).transpose(-1, -2)
-        x_norm = self.norm(x_flat)
-        x_mamba = self.mamba(x_norm)
-
-        out = x_mamba.transpose(-1, -2).reshape(B, C, *img_dims)
-        return out
-
-
-class MlpChannel(nn.Module):
-    def __init__(
-        self,
-        hidden_size,
-        mlp_dim,
-    ):
-        super().__init__()
-        self.fc1 = nn.Conv3d(hidden_size, mlp_dim, 1)
+        self.dwconv = nn.Conv3d(dim, dim, kernel_size=7, padding=3, groups=dim)
+        self.norm = LayerNorm(dim, eps=1e-6)
+        self.pwconv1 = nn.Conv3d(dim, 4 * dim, kernel_size=1, groups=dim)
         self.act = nn.GELU()
-        self.fc2 = nn.Conv3d(mlp_dim, hidden_size, 1)
+        self.pwconv2 = nn.Conv3d(4 * dim, dim, kernel_size=1, groups=dim)
+        self.gamma = (
+            nn.Parameter(layer_scale_init_value * torch.ones((dim)), requires_grad=True)
+            if layer_scale_init_value > 0
+            else None
+        )
+        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def forward(self, x):
-        x = self.fc1(x)
+        input = x
+        x = self.dwconv(x)
+        x = x.permute(0, 2, 3, 4, 1)  # (N, C, H, W, D) -> (N, H, W, D, C)
+        x = self.norm(x)
+        x = x.permute(0, 4, 1, 2, 3)
+        x = self.pwconv1(x)
         x = self.act(x)
-        x = self.fc2(x)
+        x = self.pwconv2(x)
+        x = x.permute(0, 2, 3, 4, 1)
+        if self.gamma is not None:
+            x = self.gamma * x
+
+        x = x.permute(0, 4, 1, 2, 3)
+        x = input + self.drop_path(x)
         return x
 
 
-class GSC(nn.Module):
-    def __init__(self, in_channles) -> None:
-        super().__init__()
+class uxnet_conv(nn.Module):
+    """
+    Args:
+        in_chans (int): Number of input image channels. Default: 3
+        num_classes (int): Number of classes for classification head. Default: 1000
+        depths (tuple(int)): Number of blocks at each stage. Default: [3, 3, 9, 3]
+        dims (int): Feature dimension at each stage. Default: [96, 192, 384, 768]
+        drop_path_rate (float): Stochastic depth rate. Default: 0.
+        layer_scale_init_value (float): Init value for Layer Scale. Default: 1e-6.
+        head_init_scale (float): Init scaling value for classifier weights and biases. Default: 1.
+    """
 
-        self.proj = nn.Conv3d(in_channles, in_channles, 3, 1, 1)
-        self.norm = nn.InstanceNorm3d(in_channles)
-        self.nonliner = nn.ReLU()
-
-        self.proj2 = nn.Conv3d(in_channles, in_channles, 3, 1, 1)
-        self.norm2 = nn.InstanceNorm3d(in_channles)
-        self.nonliner2 = nn.ReLU()
-
-        self.proj3 = nn.Conv3d(in_channles, in_channles, 1, 1, 0)
-        self.norm3 = nn.InstanceNorm3d(in_channles)
-        self.nonliner3 = nn.ReLU()
-
-        self.proj4 = nn.Conv3d(in_channles, in_channles, 1, 1, 0)
-        self.norm4 = nn.InstanceNorm3d(in_channles)
-        self.nonliner4 = nn.ReLU()
-
-    def forward(self, x):
-
-        x_residual = x
-
-        x1 = self.proj(x)
-        x1 = self.norm(x1)
-        x1 = self.nonliner(x1)
-
-        x1 = self.proj2(x1)
-        x1 = self.norm2(x1)
-        x1 = self.nonliner2(x1)
-
-        x2 = self.proj3(x)
-        x2 = self.norm3(x2)
-        x2 = self.nonliner3(x2)
-
-        x = x1 + x2
-        x = self.proj4(x)
-        x = self.norm4(x)
-        x = self.nonliner4(x)
-
-        return x + x_residual
-
-
-class MambaEncoder(nn.Module):
     def __init__(
         self,
         in_chans=1,
@@ -156,56 +119,55 @@ class MambaEncoder(nn.Module):
         self.downsample_layers = (
             nn.ModuleList()
         )  # stem and 3 intermediate downsampling conv layers
+        # stem = nn.Sequential(
+        #     nn.Conv3d(in_chans, dims[0], kernel_size=7, stride=2, padding=3),
+        #     LayerNorm(dims[0], eps=1e-6, data_format="channels_first")
+        # )
         stem = nn.Sequential(
             nn.Conv3d(in_chans, dims[0], kernel_size=7, stride=2, padding=3),
+            LayerNorm(dims[0], eps=1e-6, data_format="channels_first"),
         )
         self.downsample_layers.append(stem)
         for i in range(3):
             downsample_layer = nn.Sequential(
-                # LayerNorm(dims[i], eps=1e-6, data_format="channels_first"),
-                nn.InstanceNorm3d(dims[i]),
+                LayerNorm(dims[i], eps=1e-6, data_format="channels_first"),
                 nn.Conv3d(dims[i], dims[i + 1], kernel_size=2, stride=2),
             )
             self.downsample_layers.append(downsample_layer)
 
         self.stages = nn.ModuleList()
-        self.gscs = nn.ModuleList()
-        num_slices_list = [64, 32, 16, 8]
+        dp_rates = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
         cur = 0
         for i in range(4):
-            gsc = GSC(dims[i])
-
             stage = nn.Sequential(
                 *[
-                    MambaLayer(dim=dims[i], num_slices=num_slices_list[i])
+                    ux_block(
+                        dim=dims[i],
+                        drop_path=dp_rates[cur + j],
+                        layer_scale_init_value=layer_scale_init_value,
+                    )
                     for j in range(depths[i])
                 ]
             )
-
             self.stages.append(stage)
-            self.gscs.append(gsc)
             cur += depths[i]
 
         self.out_indices = out_indices
 
-        self.mlps = nn.ModuleList()
+        norm_layer = partial(LayerNorm, eps=1e-6, data_format="channels_first")
         for i_layer in range(4):
-            layer = nn.InstanceNorm3d(dims[i_layer])
+            layer = norm_layer(dims[i_layer])
             layer_name = f"norm{i_layer}"
             self.add_module(layer_name, layer)
-            self.mlps.append(MlpChannel(dims[i_layer], 2 * dims[i_layer]))
 
     def forward_features(self, x):
         outs = []
         for i in range(4):
             x = self.downsample_layers[i](x)
-            x = self.gscs[i](x)
             x = self.stages[i](x)
-
             if i in self.out_indices:
                 norm_layer = getattr(self, f"norm{i}")
                 x_out = norm_layer(x)
-                x_out = self.mlps[i](x_out)
                 outs.append(x_out)
 
         return tuple(outs)
@@ -215,7 +177,26 @@ class MambaEncoder(nn.Module):
         return x
 
 
-class SegMamba(nn.Module):
+class ProjectionHead(nn.Module):
+    def __init__(self, dim_in, proj_dim=256, proj="convmlp", bn_type="torchbn"):
+        super(ProjectionHead, self).__init__()
+        print("proj_dim: {}".format(proj_dim))
+
+        if proj == "linear":
+            self.proj = nn.Conv2d(dim_in, proj_dim, kernel_size=1)
+        elif proj == "convmlp":
+            self.proj = nn.Sequential(
+                nn.Conv3d(dim_in, dim_in, kernel_size=1),
+                nn.Sequential(nn.BatchNorm3d(dim_in), nn.ReLU()),
+                nn.Conv3d(dim_in, proj_dim, kernel_size=1),
+            )
+
+    def forward(self, x):
+        return F.normalize(self.proj(x), p=2, dim=1)
+
+
+class UXNet(nn.Module):
+
     def __init__(
         self,
         in_chans=1,
@@ -225,11 +206,29 @@ class SegMamba(nn.Module):
         drop_path_rate=0,
         layer_scale_init_value=1e-6,
         hidden_size: int = 768,
-        norm_name="instance",
+        norm_name: Union[Tuple, str] = "instance",
         conv_block: bool = True,
         res_block: bool = True,
         spatial_dims=3,
     ) -> None:
+        """
+        Args:
+            in_channels: dimension of input channels.
+            out_channels: dimension of output channels.
+            img_size: dimension of input image.
+            feature_size: dimension of network feature size.
+            hidden_size: dimension of hidden layer.
+            mlp_dim: dimension of feedforward layer.
+            num_heads: number of attention heads.
+            pos_embed: position embedding layer type.
+            norm_name: feature normalization type and arguments.
+            conv_block: bool argument to determine if convolutional block is used.
+            res_block: bool argument to determine if residual block is used.
+            dropout_rate: faction of the input units to drop.
+            spatial_dims: number of spatial dims.
+
+        """
+
         super().__init__()
 
         self.hidden_size = hidden_size
@@ -239,10 +238,19 @@ class SegMamba(nn.Module):
         self.drop_path_rate = drop_path_rate
         self.feat_size = feat_size
         self.layer_scale_init_value = layer_scale_init_value
+        self.out_indice = []
+        for i in range(len(self.feat_size)):
+            self.out_indice.append(i)
 
         self.spatial_dims = spatial_dims
-        self.vit = MambaEncoder(
-            in_chans,
+
+        self.uxnet_3d = uxnet_conv(
+            in_chans=self.in_chans,
+            depths=self.depths,
+            dims=self.feat_size,
+            drop_path_rate=self.drop_path_rate,
+            layer_scale_init_value=1e-6,
+            out_indices=self.out_indice,
         )
         self.encoder1 = UnetrBasicBlock(
             spatial_dims=spatial_dims,
@@ -340,14 +348,15 @@ class SegMamba(nn.Module):
             spatial_dims=spatial_dims, in_channels=48, out_channels=self.out_chans
         )
 
-    def proj_feat(self, x):
-        new_view = [x.size(0)] + self.proj_view_shape
+    def proj_feat(self, x, hidden_size, feat_size):
+        new_view = (x.size(0), *feat_size, hidden_size)
         x = x.view(new_view)
-        x = x.permute(self.proj_axes).contiguous()
+        new_axes = (0, len(x.shape) - 1) + tuple(d + 1 for d in range(len(feat_size)))
+        x = x.permute(new_axes).contiguous()
         return x
 
     def forward(self, x_in):
-        outs = self.vit(x_in)
+        outs = self.uxnet_3d(x_in)
         enc1 = self.encoder1(x_in)
         x2 = outs[0]
         enc2 = self.encoder2(x2)
@@ -361,5 +370,4 @@ class SegMamba(nn.Module):
         dec1 = self.decoder3(dec2, enc2)
         dec0 = self.decoder2(dec1, enc1)
         out = self.decoder1(dec0)
-
         return self.out(out)

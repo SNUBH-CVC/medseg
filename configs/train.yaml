@@ -3,7 +3,7 @@ hydra:
 
 defaults:
   - _self_
-  - model: swin_unetr.yaml
+  - model: segmamba.yaml
   - dataset: imagecas.yaml
 
 mlflow_tracking_uri: file:///data/mlruns
@@ -13,7 +13,8 @@ num_workers: 4
 device: cuda
 multi_gpu: true
 key_metric_name: mean_dice
-roi_size: [192, 192, 96]
+roi_size: [128, 128, 128]
+val_check_interval: 5
 
 loss: 
   _target_: monai.losses.dice.DiceLoss
@@ -21,7 +22,7 @@ loss:
 
 optimizer: 
   _target_: torch.optim.Adam
-  lr: 0.001
+  lr: 0.01
   weight_decay: 0.0003
 
 lr_scheduler: 

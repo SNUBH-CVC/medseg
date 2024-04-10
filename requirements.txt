@@ -1,7 +1,6 @@
 monai
 jupyter
 nibabel
-wandb
 pytorch-ignite
 pyrootutils
 scikit-image
