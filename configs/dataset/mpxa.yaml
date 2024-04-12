@@ -1,0 +1,108 @@
+dataset_dir: /data/public/processed/imagecas
+splits_path: splits.json
+annotation_filename: train_val.json
+img_dirname: images
+mask_dirname: masks
+prob: 0.2
+rotation_range: [-0.26, 0.26]
+
+train_dataloader:
+  _target_: monai.data.DataLoader
+  batch_size: 1
+  dataset:
+    _target_: medseg.datasets.imagecas.ImageCasDataset
+    dataset_dir: ${dataset.dataset_dir}
+    annotation_filename: ${dataset.annotation_filename}
+    img_dirname: ${dataset.img_dirname}
+    splits_path: ${dataset.splits_path}
+    mode: train
+    mask_dirname: ${dataset.mask_dirname}
+    transform: 
+      _target_: monai.transforms.Compose
+      transforms:
+        - _target_: monai.transforms.LoadImaged
+          keys: ["image", "mask"]
+          reader: "NumpyReader"
+        - _target_: monai.transforms.EnsureChannelFirstd
+          keys: ["image", "mask"]
+        - _target_: monai.transforms.RandRotated
+          keys: ["image", "mask"]
+          prob: ${dataset.prob}
+          range_x: ${dataset.rotation_range}
+          range_y: ${dataset.rotation_range}
+          mode: ["bilinear", "nearest"]
+        - _target_: monai.transforms.RandZoomd
+          keys: ["image", "mask"]
+          prob: ${dataset.prob}
+          min_zoom: 0.9
+          max_zoom: 1.1
+        - _target_: monai.transforms.RandGaussianNoised
+          keys: ["image"]
+          prob: ${dataset.prob}
+        - _target_: monai.transforms.RandGaussianSmoothd
+          keys: ["image"]
+          prob: ${dataset.prob}
+        - _target_: monai.transforms.RandScaleIntensityd
+          keys: ["image"]
+          factors: 0.3
+          prob: ${dataset.prob}
+        - _target_: monai.transforms.RandAdjustContrastd
+          keys: ["image"]
+          prob: ${dataset.prob}
+        - _target_: monai.transforms.NormalizeIntensityd
+          keys: ["image"]
+        - _target_: monai.transforms.EnsureTyped
+          keys: ["image", "mask"]
+
+val_dataloader:
+  _target_: monai.data.DataLoader
+  batch_size: 1
+  dataset:
+    _target_: medseg.datasets.imagecas.ImageCasDataset
+    dataset_dir: ${...dataset_dir}
+    annotation_filename: ${dataset.annotation_filename}
+    img_dirname: ${dataset.img_dirname}
+    splits_path: ${dataset.splits_path}
+    mode: val
+    mask_dirname: ${dataset.mask_dirname}
+    transform: 
+      _target_: monai.transforms.Compose
+      transforms:
+        - _target_: monai.transforms.LoadImaged
+          keys: ["image", "mask"]
+          reader: "NumpyReader"
+        - _target_: monai.transforms.EnsureChannelFirstd
+          keys: ["image", "mask"]
+        - _target_: monai.transforms.ScaleIntensityRangePercentilesd
+          keys: ["image"]
+          lower: 0.05
+          upper: 0.95 
+          b_min: -4000
+          b_max: 4000
+        - _target_: monai.transforms.NormalizeIntensityd
+          keys: ["image"]
+        - _target_: monai.transforms.EnsureTyped
+          keys: ["image", "mask"]
+
+eval_post_pred_transforms:
+  _target_: monai.transforms.Compose
+  transforms:
+    - _target_: monai.transforms.Activations
+      sigmoid: true
+    - _target_: monai.transforms.AsDiscrete
+      threshold: 0.5
+
+eval_post_label_transforms: 
+  _target_: monai.transforms.Compose
+  transforms:
+    - _target_: monai.transforms.AsDiscrete
+      threshold: 0.5
+
+inferer:
+  _target_:
+    monai.inferers.SlidingWindowInferer
+  roi_size: ${roi_size}
+
+prepare_batch:
+  _target_: medseg.core.utils.lambda_prepare_batch
+  keys: ["image", "mask"]
