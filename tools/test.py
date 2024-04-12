@@ -1,9 +1,11 @@
 import argparse
 import os
+import tempfile
 
 import hydra
 import mlflow
 import omegaconf
+import torch
 from monai.data import DataLoader
 from monai.transforms import (Compose, EnsureChannelFirstd, EnsureTyped,
                               LoadImaged, NormalizeIntensityd, SaveImage,
@@ -27,20 +29,25 @@ def main():
 
     set_mlflow_tracking_uri(args.mlflow_tracking_uri)
     client = mlflow.MlflowClient(args.mlflow_tracking_uri)
-    run = client.get_run(args.run_id)
 
-    # get hydra config from artifact path
-    hydra_output_subdir = run.data.params["hydra_output_subdir"]
-    hydra_config_path = os.path.join(hydra_output_subdir, "config.yaml")
-    cfg = omegaconf.OmegaConf.load(hydra_config_path)
+    # get hydra config and checkpoint
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        cfg_download_path = client.download_artifacts(
+            args.resume_run_id, "config", dst_path=tmpdirname
+        )
+        cfg_path = os.path.join(cfg_download_path, "config.yaml")
+        cfg = omegaconf.OmegaConf.load(cfg_path)
+        checkpoint_download_path = client.download_artifacts(
+            args.resume_run_id, "model", dst_path=tmpdirname
+        )
+        checkpoint_path = os.path.join(checkpoint_download_path, "checkpoint.pth")
+        checkpoint = torch.load(checkpoint_path)
 
     dataset = hydra.utils.instantiate(cfg.dataset)
+    model = checkpoint["model"]
     inferer = dataset["inferer"]
     eval_post_pred_transforms = dataset["eval_post_pred_transforms"]
 
-    # load model
-    model_uri = f"runs:/{args.run_id}/model"
-    model = mlflow.pytorch.load_model(model_uri).to(args.device)
     spacing = [0.34960938, 0.34960938, 0.5]
 
     transforms = Compose(
