@@ -1,0 +1,6 @@
+obj: 
+  _target_: segmentation_models_pytorch.UnetPlusPlus
+  encoder_name: resnet101
+  encoder_weights: null
+  activation: null
+  in_channels: 1

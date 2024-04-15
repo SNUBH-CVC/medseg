@@ -23,8 +23,10 @@ def run_single(
     img_id,
     img_path,
     mask_path,
+    skeleton_path,
     img_save_dir,
     mask_save_dir,
+    skeleton_save_dir,
     images,
     annotations,
     num_data,
@@ -56,23 +58,30 @@ def run_single(
             "mask_info": {
                 "file_name": save_basename,
             },
+            "skeleton_info": {
+                "file_name": save_basename,
+            },
         }
     )
     copyfile(img_path, os.path.join(img_save_dir, save_basename))
     copyfile(mask_path, os.path.join(mask_save_dir, save_basename))
+    copyfile(skeleton_path, os.path.join(skeleton_save_dir, save_basename))
 
 
 def main():
     args = parse_args()
     img_dir = os.path.join(args.dataset_dir, "images")
     mask_dir = os.path.join(args.dataset_dir, "masks")
+    skeleton_dir = os.path.join(args.dataset_dir, "skeletons")
 
     # dataset 이름으로 자동 지정
     assert not os.path.exists(args.output_dir)
     img_save_dir = os.path.join(args.output_dir, "images")
     mask_save_dir = os.path.join(args.output_dir, "masks")
+    skeleton_save_dir = os.path.join(args.output_dir, "skeletons")
     os.makedirs(img_save_dir)
     os.makedirs(mask_save_dir)
+    os.makedirs(skeleton_save_dir)
 
     # https://scikit-learn.org/stable/modules/cross_validation.html
     # test는 별도로 관리해야 맞기 때문에, cross-validation에서 제외하기.
@@ -121,8 +130,10 @@ def main():
                         i,
                         os.path.join(img_dir, f"{i}.img.nii.gz"),
                         os.path.join(mask_dir, f"{i}.label.nii.gz"),
+                        os.path.join(skeleton_dir, f"{i}.skeleton.nii.gz"),
                         img_save_dir,
                         mask_save_dir,
+                        skeleton_save_dir,
                         images,
                         annotations,
                         num_ids,

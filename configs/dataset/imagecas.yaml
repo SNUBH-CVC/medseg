@@ -3,6 +3,7 @@ splits_path: splits.json
 annotation_filename: train_val.json
 img_dirname: images
 mask_dirname: masks
+skeleton_dirname: skeletons
 prob: 0.2
 rotation_range: [-0.26, 0.26]
 
@@ -17,14 +18,15 @@ train_dataloader:
     splits_path: ${dataset.splits_path}
     mode: train
     mask_dirname: ${dataset.mask_dirname}
+    skeleton_dirname: ${dataset.skeleton_dirname}
     transform: 
       _target_: monai.transforms.Compose
       transforms:
         - _target_: monai.transforms.LoadImaged
-          keys: ["image", "mask"]
+          keys: ["image", "mask", "skeleton"]
           reader: "NumpyReader"
         - _target_: monai.transforms.EnsureChannelFirstd
-          keys: ["image", "mask"]
+          keys: ["image", "mask", "skeleton"]
         - _target_: monai.transforms.ScaleIntensityRangePercentilesd
           keys: ["image"]
           lower: 0.05
@@ -33,17 +35,17 @@ train_dataloader:
           b_max: 4000
         # _target_: monai.transforms.Rand3DElastic
         - _target_: monai.transforms.RandRotated
-          keys: ["image", "mask"]
+          keys: ["image", "mask", "skeleton"]
           prob: ${dataset.prob}
           range_x: ${dataset.rotation_range}
           range_y: ${dataset.rotation_range}
           range_z: ${dataset.rotation_range}
-          mode: ["bilinear", "nearest"]
+          mode: ["bilinear", "nearest", "nearest"]
         - _target_: monai.transforms.RandZoomd
-          keys: ["image", "mask"]
+          keys: ["image", "mask", "skeleton"]
           prob: ${dataset.prob}
-          min_zoom: 0.8
-          max_zoom: 1.2
+          min_zoom: 0.9
+          max_zoom: 1.1
         - _target_: monai.transforms.RandGaussianNoised
           keys: ["image"]
           prob: ${dataset.prob}
@@ -60,9 +62,9 @@ train_dataloader:
         - _target_: monai.transforms.NormalizeIntensityd
           keys: ["image"]
         - _target_: monai.transforms.EnsureTyped
-          keys: ["image", "mask"]
+          keys: ["image", "mask", "skeleton"]
         - _target_: monai.transforms.RandSpatialCropd
-          keys: ["image", "mask"]
+          keys: ["image", "mask", "skeleton"]
           roi_size: ${roi_size}
 
 val_dataloader:
@@ -76,14 +78,15 @@ val_dataloader:
     splits_path: ${dataset.splits_path}
     mode: val
     mask_dirname: ${dataset.mask_dirname}
+    skeleton_dirname: ${dataset.skeleton_dirname}
     transform: 
       _target_: monai.transforms.Compose
       transforms:
         - _target_: monai.transforms.LoadImaged
-          keys: ["image", "mask"]
+          keys: ["image", "mask", "skeleton"]
           reader: "NumpyReader"
         - _target_: monai.transforms.EnsureChannelFirstd
-          keys: ["image", "mask"]
+          keys: ["image", "mask", "skeleton"]
         - _target_: monai.transforms.ScaleIntensityRangePercentilesd
           keys: ["image"]
           lower: 0.05
@@ -93,7 +96,7 @@ val_dataloader:
         - _target_: monai.transforms.NormalizeIntensityd
           keys: ["image"]
         - _target_: monai.transforms.EnsureTyped
-          keys: ["image", "mask"]
+          keys: ["image", "mask", "skeleton"]
 
 eval_post_pred_transforms:
   _target_: monai.transforms.Compose
@@ -116,4 +119,4 @@ inferer:
 
 prepare_batch:
   _target_: medseg.core.utils.lambda_prepare_batch
-  keys: ["image", "mask"]
+  keys: ["image", "mask", "skeleton"]

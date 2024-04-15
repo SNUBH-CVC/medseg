@@ -1,16 +1,17 @@
-dataset_dir: /data/public/processed/imagecas
+dataset_dir: /data/snubhcvc/raw_coco_format/mpxa
 splits_path: splits.json
 annotation_filename: train_val.json
 img_dirname: images
 mask_dirname: masks
 prob: 0.2
 rotation_range: [-0.26, 0.26]
+spatial_size: [512, 512]
 
 train_dataloader:
   _target_: monai.data.DataLoader
-  batch_size: 1
+  batch_size: 16
   dataset:
-    _target_: medseg.datasets.imagecas.ImageCasDataset
+    _target_: medseg.datasets.mpxa.MpxaDataset
     dataset_dir: ${dataset.dataset_dir}
     annotation_filename: ${dataset.annotation_filename}
     img_dirname: ${dataset.img_dirname}
@@ -25,6 +26,13 @@ train_dataloader:
           reader: "NumpyReader"
         - _target_: monai.transforms.EnsureChannelFirstd
           keys: ["image", "mask"]
+        # - _target_: monai.transforms.RepeatChanneld
+        #   keys: ["image"]
+        #   repeats: 3
+        - _target_: monai.transforms.Resized
+          keys: ["image", "mask"]
+          spatial_size: ${dataset.spatial_size}
+          mode: ["bilinear", "nearest"]
         - _target_: monai.transforms.RandRotated
           keys: ["image", "mask"]
           prob: ${dataset.prob}
@@ -34,8 +42,8 @@ train_dataloader:
         - _target_: monai.transforms.RandZoomd
           keys: ["image", "mask"]
           prob: ${dataset.prob}
-          min_zoom: 0.9
-          max_zoom: 1.1
+          min_zoom: 0.8
+          max_zoom: 1.2
         - _target_: monai.transforms.RandGaussianNoised
           keys: ["image"]
           prob: ${dataset.prob}
@@ -49,8 +57,6 @@ train_dataloader:
         - _target_: monai.transforms.RandAdjustContrastd
           keys: ["image"]
           prob: ${dataset.prob}
-        - _target_: monai.transforms.NormalizeIntensityd
-          keys: ["image"]
         - _target_: monai.transforms.EnsureTyped
           keys: ["image", "mask"]
 
@@ -58,7 +64,7 @@ val_dataloader:
   _target_: monai.data.DataLoader
   batch_size: 1
   dataset:
-    _target_: medseg.datasets.imagecas.ImageCasDataset
+    _target_: medseg.datasets.mpxa.MpxaDataset
     dataset_dir: ${...dataset_dir}
     annotation_filename: ${dataset.annotation_filename}
     img_dirname: ${dataset.img_dirname}
@@ -73,14 +79,13 @@ val_dataloader:
           reader: "NumpyReader"
         - _target_: monai.transforms.EnsureChannelFirstd
           keys: ["image", "mask"]
-        - _target_: monai.transforms.ScaleIntensityRangePercentilesd
-          keys: ["image"]
-          lower: 0.05
-          upper: 0.95 
-          b_min: -4000
-          b_max: 4000
-        - _target_: monai.transforms.NormalizeIntensityd
-          keys: ["image"]
+        # - _target_: monai.transforms.RepeatChanneld
+        #   keys: ["image"]
+        #   repeats: 3
+        - _target_: monai.transforms.Resized
+          keys: ["image", "mask"]
+          spatial_size: ${dataset.spatial_size}
+          mode: ["bilinear", "nearest"]
         - _target_: monai.transforms.EnsureTyped
           keys: ["image", "mask"]
 
@@ -100,8 +105,7 @@ eval_post_label_transforms:
 
 inferer:
   _target_:
-    monai.inferers.SlidingWindowInferer
-  roi_size: ${roi_size}
+    monai.inferers.SimpleInferer
 
 prepare_batch:
   _target_: medseg.core.utils.lambda_prepare_batch

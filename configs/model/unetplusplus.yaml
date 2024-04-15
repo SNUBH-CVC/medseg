@@ -1,5 +1,0 @@
-obj: 
-  _target_: smp.UnetPlusPlus
-  encoder_name: resnet101
-  encoder_weights: imagenet
-  activation: sigmoid

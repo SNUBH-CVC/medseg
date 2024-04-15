@@ -21,7 +21,13 @@ def parse_args():
     parser.add_argument("--annotation_filename", type=str, default="train_val.json")
     parser.add_argument("--img_dirname", type=str, default="images")
     parser.add_argument("--mask_dirname", type=str, default="masks")
+    parser.add_argument("--skeleton_dirname", type=str, default="skeletons")
     return parser.parse_args()
+
+
+IMG_KEY = "image"
+MASK_KEY = "mask"
+SKELETON_KEY = "skeleton"
 
 
 class Preprocessor:
@@ -44,14 +50,14 @@ class Preprocessor:
         self.num_processes = num_processes
         self.img_save_dir = os.path.join(self.output_dir, "images")
         self.mask_save_dir = os.path.join(self.output_dir, "masks")
+        self.skeleton_save_dir = os.path.join(self.output_dir, "skeletons")
         os.makedirs(self.img_save_dir, exist_ok=True)
         os.makedirs(self.mask_save_dir, exist_ok=True)
+        os.makedirs(self.skeleton_save_dir, exist_ok=True)
 
         self.seed = 42
         self.k = 5
         self.transform = transform
-        self.img_key = "image"
-        self.mask_key = "mask"
 
     def split(self):
         kf = KFold(n_splits=self.k, random_state=self.seed, shuffle=True)
@@ -116,15 +122,16 @@ class Preprocessor:
         _id = data["id"]
         img_path = data["image"]
         mask_path = data["mask"]
+        skeleton_path = data["skeleton"]
 
         # bbox 있는 경우 처리 로직 추가
-        data = {self.img_key: img_path, self.mask_key: mask_path}
+        data = {IMG_KEY: img_path, MASK_KEY: mask_path, SKELETON_KEY: skeleton_path}
         with lock:
             counter.value += 1
         logger.info(f"Preprocessing {counter.value}/{num_data}: {img_path}")
 
         res = self.transform(data)
-        img, mask = res[self.img_key], res[self.mask_key]
+        img, mask, skeleton = res[IMG_KEY], res[MASK_KEY], res[SKELETON_KEY]
 
         basename = f"{_id}.npy"
         images.append(
@@ -141,10 +148,14 @@ class Preprocessor:
                 "mask_info": {
                     "file_name": basename,
                 },
+                "skeleton_info": {
+                    "file_name": basename,
+                },
             }
         )
         np.save(os.path.join(self.img_save_dir, basename), img)
         np.save(os.path.join(self.mask_save_dir, basename), mask)
+        np.save(os.path.join(self.skeleton_save_dir, basename), skeleton)
 
 
 def main():
@@ -155,23 +166,24 @@ def main():
         args.img_dirname,
         "train_val",
         mask_dirname=args.mask_dirname,
+        skeleton_dirname=args.skeleton_dirname,
     )
     target_spacing = np.percentile(
         [dataset.coco.load_img(i)["spacing"] for i in dataset.coco.get_img_ids()], 50, 0
     )
     logger.info(f"Adjust target_spacing: {target_spacing}.")
+    all_keys = [IMG_KEY, MASK_KEY, SKELETON_KEY]
     transforms = Compose(
         [
-            LoadImaged(keys=["image", "mask"]),
-            EnsureChannelFirstd(keys=["image", "mask"]),
-            Spacingd(keys=["image", "mask"], pixdim=target_spacing),
+            LoadImaged(keys=all_keys),
+            EnsureChannelFirstd(keys=all_keys),
+            Spacingd(keys=all_keys, pixdim=target_spacing),
             EnsureTyped(
-                keys=["image", "mask"], dtype=[np.float64, np.uint8], data_type="numpy"
+                keys=all_keys, dtype=[np.float64, np.uint8, np.uint8], data_type="numpy"
             ),
-            SqueezeDimd(keys=["image", "mask"], dim=0),
+            SqueezeDimd(keys=all_keys, dim=0),
         ]
     )
-
     preprocessor = Preprocessor(dataset, transforms, args.output_dir)
     preprocessor.preprocess()
 

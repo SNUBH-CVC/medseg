@@ -22,12 +22,26 @@ def parse_args():
     return parser.parse_args()
 
 
+def normalize(pixel_array, window_center, window_width):
+    # Calculate the min and max values for the window
+    window_min = window_center - window_width / 2
+    window_max = window_center + window_width / 2
+
+    # Apply windowing
+    windowed_array = np.clip(pixel_array, window_min, window_max)
+
+    # Scale the pixel values to [0, 1]
+    scaled_array = (windowed_array - window_min) / (window_max - window_min)
+    return scaled_array
+
+
 def run_single(dcm_path, result_path, img_save_dir, mask_save_dir, images, annotations):
     dcm = pydicom.dcmread(dcm_path)
     with open(result_path, "r") as f:
         data = json.load(f)
     frame_number = data["frameNo"]
     img = dcm.pixel_array[frame_number]
+    img = normalize(img, dcm.WindowCenter, dcm.WindowWidth)
     contour = np.array(json.loads(data["editContour"]))
     mask = polygon2mask(img.shape[:2], contour[:, ::-1]).astype(np.uint8)
     token = data["token"]
