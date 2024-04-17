@@ -6,7 +6,7 @@ defaults:
 mlflow_tracking_uri: file:///data/mlruns
 experiment_name: imagecas
 max_epochs: 300
-num_workers: 4
+num_workers: 16
 device: cuda
 multi_gpu: true
 key_metric_name: mean_dice
@@ -15,7 +15,7 @@ val_check_interval: 5
 
 loss: 
   _target_: monai.losses.dice.DiceLoss
-  # _target_: medseg.losses.cldice.clDiceLoss
+  sigmoid: true
 
 optimizer: 
   _target_: torch.optim.Adam
