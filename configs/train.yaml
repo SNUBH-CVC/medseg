@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - model: skel_unet.yaml
+  - model: unet.yaml
   - dataset: imagecas.yaml
 
 mlflow_tracking_uri: file:///data/mlruns
@@ -10,19 +10,12 @@ num_workers: 4
 device: cuda
 multi_gpu: true
 key_metric_name: mean_dice
-roi_size: [128, 128, 96]
+roi_size: [256, 256, 128]
 val_check_interval: 5
 
 loss: 
-  - obj: 
-      _target_: monai.losses.dice.DiceLoss
-      sigmoid: true
-    start_weight: 1.0
-    end_weight: 0.3
-  - obj: 
-      _target_: medseg.losses.cldice.clDiceLoss
-    start_weight: 0.0
-    end_weight: 0.7
+  _target_: monai.losses.dice.DiceLoss
+  # _target_: medseg.losses.cldice.clDiceLoss
 
 optimizer: 
   _target_: torch.optim.Adam

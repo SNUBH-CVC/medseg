@@ -56,3 +56,6 @@ class SkelUNet(UNet):
             return mask_pred, skel_pred
         else:
             return skel_pred
+
+    def load_from(self, weights):
+        self.load_state_dict(weights)

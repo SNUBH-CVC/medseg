@@ -47,8 +47,10 @@ def train():
             )
             checkpoint_path = os.path.join(checkpoint_download_path, "checkpoint.pth")
             checkpoint = torch.load(checkpoint_path)
-        model = checkpoint["model"]
-        optimizer = checkpoint["optimizer"]
+        model = hydra.utils.instantiate(cfg.model.obj).to(device)
+        model.load_state_dict(checkpoint["model"])
+        optimizer = hydra.utils.instantiate(cfg.optimizer, params=model.parameters())
+        optimizer.load_state_dict(checkpoint["optimizer"])
         resume_epoch = checkpoint["epoch"]
         best_metric = max(
             i.value
@@ -86,7 +88,7 @@ def train():
     prepare_batch = dataset["prepare_batch"]
     eval_post_pred_transforms = dataset["eval_post_pred_transforms"]
     eval_post_label_transforms = dataset["eval_post_label_transforms"]
-    if isinstance(cfg.loss, Iterable):
+    if isinstance(cfg.loss, omegaconf.ListConfig):
         weight_params = [
             nn.Parameter(torch.tensor(l.start_weight).to(device), requires_grad=False)
             for l in cfg.loss
@@ -187,8 +189,8 @@ def train():
                     best_metric = value
                     with tempfile.TemporaryDirectory() as tempdir:
                         checkpoint = {
-                            "optimizer": optimizer,
-                            "model": model,
+                            "optimizer": optimizer.state_dict(),
+                            "model": model.state_dict(),
                             "epoch": trainer.state.epoch,
                         }
                         checkpoint_path = os.path.join(tempdir, "checkpoint.pth")
