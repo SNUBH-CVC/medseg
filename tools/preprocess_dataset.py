@@ -3,7 +3,6 @@ import json
 import multiprocessing
 import os
 
-import kimimaro
 import numpy as np
 import tqdm
 from monai.transforms import (Compose, EnsureChannelFirstd, EnsureTyped,
@@ -29,45 +28,7 @@ def parse_args():
 
 IMG_KEY = "image"
 MASK_KEY = "mask"
-
-
-def skeletonize(mask: np.uint8):
-    anisotropy = (16, 16, 40)
-    skels = kimimaro.skeletonize(
-        mask,
-        teasar_params={
-            "scale": 1,
-            "const": 200,  # physical units
-            "pdrf_scale": 100000,
-            "pdrf_exponent": 4,
-            "soma_acceptance_threshold": 3500,  # physical units
-            "soma_detection_threshold": 750,  # physical units
-            "soma_invalidation_const": 300,  # physical units
-            "soma_invalidation_scale": 2,
-            "max_paths": 300,  # default None
-        },
-        # object_ids=[ ... ], # process only the specified labels
-        # extra_targets_before=[ (27,33,100), (44,45,46) ], # target points in voxels
-        # extra_targets_after=[ (27,33,100), (44,45,46) ], # target points in voxels
-        dust_threshold=1000,  # skip connected components with fewer than this many voxels
-        anisotropy=anisotropy,  # default True
-        fix_branching=True,  # default True
-        fix_borders=True,  # default True
-        fill_holes=False,  # default False
-        fix_avocados=False,  # default False
-        progress=True,  # default False, show progress bar
-        parallel=1,  # <= 0 all cpu, 1 single process, 2+ multiprocess
-        parallel_chunk_size=100,  # how many skeletons to process before updating progress bar
-    )
-    # merge
-    board = np.zeros_like(mask)
-    for skel in skels.values():
-        vertices = skel.vertices
-        rescaled_vertices = (vertices / np.array(anisotropy)).astype(int)
-        board[
-            rescaled_vertices[:, 0], rescaled_vertices[:, 1], rescaled_vertices[:, 2]
-        ] = 1
-    return board
+SKELETON_KEY = "skeleton"
 
 
 class Preprocessor:
@@ -76,8 +37,10 @@ class Preprocessor:
         dataset,
         transform,
         output_dir,
+        img_dirname,
+        mask_dirname,
+        skeleton_dirname,
         num_processes=None,
-        generate_skeleton=True,
     ):
         self.dataset = dataset
         self.transform = transform
@@ -89,15 +52,12 @@ class Preprocessor:
             self.target_spacing = None
         self.output_dir = output_dir
         self.num_processes = num_processes
-        self.generate_skeleton = generate_skeleton
-
-        self.img_save_dir = os.path.join(self.output_dir, "images")
-        self.mask_save_dir = os.path.join(self.output_dir, "masks")
+        self.img_save_dir = os.path.join(self.output_dir, img_dirname)
+        self.mask_save_dir = os.path.join(self.output_dir, mask_dirname)
+        self.skeleton_save_dir = os.path.join(self.output_dir, skeleton_dirname)
         os.makedirs(self.img_save_dir, exist_ok=True)
         os.makedirs(self.mask_save_dir, exist_ok=True)
-        if self.generate_skeleton:
-            self.skeleton_save_dir = os.path.join(self.output_dir, "skeletons")
-            os.makedirs(self.skeleton_save_dir, exist_ok=True)
+        os.makedirs(self.skeleton_save_dir, exist_ok=True)
 
         self.seed = 42
         self.k = 5
@@ -160,12 +120,13 @@ class Preprocessor:
         _id = data["id"]
         img_path = data["image"]
         mask_path = data["mask"]
+        skeleton_path = data["skeleton"]
 
         # bbox 있는 경우 처리 로직 추가
-        data = {IMG_KEY: img_path, MASK_KEY: mask_path}
+        data = {IMG_KEY: img_path, MASK_KEY: mask_path, SKELETON_KEY: skeleton_path}
 
         res = self.transform(data)
-        img, mask = res[IMG_KEY], res[MASK_KEY]
+        img, mask, skeleton = res[IMG_KEY], res[MASK_KEY], res[SKELETON_KEY]
 
         basename = f"{_id}.npy"
         images.append(
@@ -176,25 +137,20 @@ class Preprocessor:
                 "spacing": self.target_spacing,
             }
         )
-        ann = {
-            "image_id": _id,
-            "mask_info": {
-                "file_name": basename,
-            },
-        }
-        if self.generate_skeleton:
-            ann.update(
-                {
-                    "skeleton_info": {
-                        "file_name": basename,
-                    }
-                }
-            )
-            skeleton = skeletonize(mask)
-            np.save(os.path.join(self.skeleton_save_dir, basename), skeleton)
-        annotations.append(ann)
+        annotations.append(
+            {
+                "image_id": _id,
+                "mask_info": {
+                    "file_name": basename,
+                },
+                "skeleton_info": {
+                    "file_name": basename,
+                },
+            }
+        )
         np.save(os.path.join(self.img_save_dir, basename), img)
         np.save(os.path.join(self.mask_save_dir, basename), mask)
+        np.save(os.path.join(self.skeleton_save_dir, basename), skeleton)
 
 
 def main():
@@ -211,19 +167,34 @@ def main():
         [dataset.coco.load_img(i)["spacing"] for i in dataset.coco.get_img_ids()], 50, 0
     )
     logger.info(f"Adjust target_spacing: {target_spacing}.")
-    all_keys = [IMG_KEY, MASK_KEY]
+
+    all_keys = [IMG_KEY, MASK_KEY, SKELETON_KEY]
     transforms = Compose(
         [
             LoadImaged(keys=all_keys),
             EnsureChannelFirstd(keys=all_keys),
-            Spacingd(keys=all_keys, pixdim=target_spacing),
+            Spacingd(
+                keys=all_keys,
+                pixdim=target_spacing,
+                mode=["bilinear", "nearest", "nearest"],
+            ),
             EnsureTyped(
-                keys=all_keys, dtype=[np.float64, np.uint8, np.uint8], data_type="numpy"
+                keys=all_keys,
+                dtype=[np.float64, np.uint8, np.uint8],
+                data_type="numpy",
             ),
             SqueezeDimd(keys=all_keys, dim=0),
         ]
     )
-    preprocessor = Preprocessor(dataset, transforms, args.output_dir)
+
+    preprocessor = Preprocessor(
+        dataset,
+        transforms,
+        args.output_dir,
+        args.img_dirname,
+        args.mask_dirname,
+        args.skeleton_dirname,
+    )
     preprocessor.preprocess()
 
 
