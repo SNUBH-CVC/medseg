@@ -1,6 +1,7 @@
 import argparse
 import os
 import tempfile
+from collections.abc import Iterable
 
 import hydra
 import mlflow
@@ -11,6 +12,7 @@ from hydra import compose, initialize_config_dir
 from ignite.engine import (Events, create_supervised_evaluator,
                            create_supervised_trainer)
 from monai.handlers import LrScheduleHandler
+from monai.losses import DiceLoss
 
 from medseg.core.utils import set_mlflow_tracking_uri, setup_logger
 
@@ -45,8 +47,10 @@ def train():
             )
             checkpoint_path = os.path.join(checkpoint_download_path, "checkpoint.pth")
             checkpoint = torch.load(checkpoint_path)
-        model = checkpoint["model"]
-        optimizer = checkpoint["optimizer"]
+        model = hydra.utils.instantiate(cfg.model.obj).to(device)
+        model.load_state_dict(checkpoint["model"])
+        optimizer = hydra.utils.instantiate(cfg.optimizer, params=model.parameters())
+        optimizer.load_state_dict(checkpoint["optimizer"])
         resume_epoch = checkpoint["epoch"]
         best_metric = max(
             i.value
@@ -84,7 +88,29 @@ def train():
     prepare_batch = dataset["prepare_batch"]
     eval_post_pred_transforms = dataset["eval_post_pred_transforms"]
     eval_post_label_transforms = dataset["eval_post_label_transforms"]
-    loss_fn = hydra.utils.instantiate(cfg.loss)
+    if isinstance(cfg.loss, omegaconf.ListConfig):
+        weight_params = [
+            nn.Parameter(torch.tensor(l.start_weight).to(device), requires_grad=False)
+            for l in cfg.loss
+        ]
+        loss_objs = [hydra.utils.instantiate(l.obj) for l in cfg.loss]
+
+        def loss_sum(y_pred, y):
+            losses = []
+            for i in range(len(cfg.loss)):
+                obj = loss_objs[i]
+                if isinstance(y, Iterable):
+                    if isinstance(obj, DiceLoss):
+                        losses.append(weight_params[i] * obj(y_pred[0], y[0]))
+                else:
+                    losses.append(weight_params[i] * obj(y_pred, y))
+            return sum(losses)
+
+        loss_fn = lambda y_pred, y: loss_sum(y_pred, y)
+        multi_loss = True
+    else:
+        loss_fn = hydra.utils.instantiate(cfg.loss)
+        multi_loss = False
     lr_scheduler = LrScheduleHandler(
         hydra.utils.instantiate(cfg.lr_scheduler, optimizer=optimizer)
     )
@@ -99,6 +125,17 @@ def train():
     )
     for handler in trainer_handlers:
         handler.attach(trainer)
+
+    def schedule_loss_weights(engine):
+        for param, loss_cfg in zip(weight_params, cfg.loss):
+            weight = (
+                loss_cfg.start_weight
+                + (loss_cfg.end_weight - loss_cfg.start_weight)
+                * engine.state.epoch
+                / cfg.max_epochs
+            )
+            logger.info(f"set weight of loss({loss_cfg.obj._target_}) to {weight}")
+            param.data = torch.tensor(weight).to(cfg.device)
 
     @trainer.on(Events.ITERATION_COMPLETED)
     def trainer_iteration_completed(engine):
@@ -122,12 +159,16 @@ def train():
     @trainer.on(Events.EPOCH_COMPLETED)
     def trainer_epoch_completed(engine):
         mlflow.log_metric("epoch", value=engine.state.epoch, step=engine.state.epoch)
+        if multi_loss:
+            schedule_loss_weights(engine)
 
     if resume:
         @trainer.on(Events.STARTED)
         def resume_training(engine):
             engine.state.iteration = resume_epoch * len(engine.state.dataloader)
             engine.state.epoch = resume_epoch
+            if multi_loss:
+                schedule_loss_weights(engine)
 
     evaluator_kwargs = dict(
         prepare_batch=prepare_batch,
@@ -148,8 +189,8 @@ def train():
                     best_metric = value
                     with tempfile.TemporaryDirectory() as tempdir:
                         checkpoint = {
-                            "optimizer": optimizer,
-                            "model": model,
+                            "optimizer": optimizer.state_dict(),
+                            "model": model.state_dict(),
                             "epoch": trainer.state.epoch,
                         }
                         checkpoint_path = os.path.join(tempdir, "checkpoint.pth")

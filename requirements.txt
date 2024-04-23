@@ -10,3 +10,5 @@ einops
 hydra-core
 hydra-colorlog
 omegaconf
+
+segmentation_models_pytorch 

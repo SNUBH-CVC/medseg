@@ -52,4 +52,10 @@ def lambda_lr(max_epochs):
 
 
 def lambda_prepare_batch(keys):
-    return lambda batch, device, non_blocking: (batch[k].to(device) for k in keys)
+    if len(keys) <= 2:
+        return lambda batch, device, non_blocking: (batch[k].to(device) for k in keys)
+    else:
+        return lambda batch, device, non_blocking: (
+            batch[keys[0]].to(device),
+            [batch[k].to(device) for k in keys[1:]],
+        )

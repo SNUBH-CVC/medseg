@@ -1,16 +1,15 @@
 defaults:
   - _self_
-  - model: unet.yaml
-  - dataset: imagecas.yaml
+  - model: unetplusplus.yaml
+  - dataset: mpxa.yaml
 
 mlflow_tracking_uri: file:///data/mlruns
-experiment_name: imagecas
-max_epochs: 300
-num_workers: 16
+experiment_name: mpxa
+max_epochs: 500
+num_workers: 4
 device: cuda
 multi_gpu: true
 key_metric_name: mean_dice
-roi_size: [256, 256, 128]
 val_check_interval: 5
 
 loss: 
@@ -19,13 +18,13 @@ loss:
 
 optimizer: 
   _target_: torch.optim.Adam
-  lr: 0.01
+  lr: 0.001
   weight_decay: 0.0003
 
 lr_scheduler: 
   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
   T_max: ${max_epochs}
-  eta_min: 0.0001
+  eta_min: 0.00001
 
 metrics: 
   _target_: builtins.dict
@@ -37,3 +36,4 @@ train_handlers:
 
 evaluate_handlers:
   _target_: builtins.list
+
