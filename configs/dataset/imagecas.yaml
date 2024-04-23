@@ -45,6 +45,7 @@ train_dataloader:
           prob: ${dataset.prob}
           min_zoom: 0.9
           max_zoom: 1.1
+          mode: ["bilinear", "nearest"]
         - _target_: monai.transforms.RandGaussianNoised
           keys: ["image"]
           prob: ${dataset.prob}
