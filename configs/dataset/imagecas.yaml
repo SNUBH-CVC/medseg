@@ -9,6 +9,7 @@ rotation_range: [-0.26, 0.26]
 train_dataloader:
   _target_: monai.data.DataLoader
   batch_size: 16
+  shuffle: true
   dataset:
     _target_: medseg.datasets.imagecas.ImageCasDataset
     dataset_dir: ${dataset.dataset_dir}
